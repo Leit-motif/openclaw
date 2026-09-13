@@ -194,7 +194,7 @@ export async function runSessionsSendA2AFlow(params: {
       let currentSessionKey = params.requesterSessionKey;
       let nextSessionKey = params.targetSessionKey;
       let currentAgentId = params.requesterAgentId;
-      let nextAgentId = params.targetAgentId;
+      let nextAgentId: string | undefined = params.targetAgentId;
       let currentRole: "requester" | "target" = "requester";
       let nextRole: "requester" | "target" = "target";
       let incomingMessage = latestReply;
