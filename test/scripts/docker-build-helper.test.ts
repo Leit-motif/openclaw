@@ -915,9 +915,15 @@ fi
     expect(runner).toContain('-v "$SCENARIO_ROOT/agent workspace:$GATEWAY_ROOT/workspace"');
     expect(runner).toContain('-v "$SCENARIO_ROOT/nested data:$GATEWAY_ROOT/workspace/data:ro"');
     expect(runner).toContain("scripts/docker/sandbox/Dockerfile.browser");
-    expect(scenario).toContain('from "openclaw/plugin-sdk/agent-harness-runtime"');
+    expectTextToIncludeInOrder(scenario, [
+      "process.env.HOME =",
+      "process.env.OPENCLAW_STATE_DIR =",
+      "process.env.OPENCLAW_CONFIG_PATH =",
+      'await import("openclaw/plugin-sdk/agent-harness-runtime")',
+    ]);
+    expect(scenario).not.toMatch(/from\s+["']openclaw\/plugin-sdk\/agent-harness-runtime["']/u);
     expect(scenario).toContain('"sandbox", "list", "--browser", "--json"');
-    expect(scenario).not.toMatch(/from\s+["'][.]{1,2}\/.*src\//u);
+    expect(scenario).not.toMatch(/(?:from\s+|import\s*\(\s*)["'][.]{1,2}\/.*src\//u);
   });
 
   it("cleans all sidecar modes without touching another run on the same Gateway workspace", () => {
