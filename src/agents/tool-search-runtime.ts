@@ -373,9 +373,8 @@ async function assertCatalogOutputMatchesSchema(
 }
 
 function sanitizeToolCallIdPart(value: string): string {
-  const trimmed = value.trim();
-  const safe = trimmed.replace(/[^A-Za-z0-9_.:-]+/g, "_").slice(0, 120);
-  return safe || "call";
+  const safe = value.trim().replace(/[^A-Za-z0-9_.:-]+/g, "_");
+  return safe.slice(0, 120) || "call";
 }
 
 export class ToolSearchRuntime {
