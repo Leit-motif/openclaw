@@ -353,8 +353,6 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
       invalidateChatAvatarCache(state);
       state.assistantIdentityRequestVersion += 1;
       retireChatMetadataRequests(state);
-      this.swarmHydrator?.dispose();
-      this.swarmHydrator = null;
       this.taskSuggestionsRequestVersion += 1;
       this.setTaskSuggestions([]);
       this.taskSuggestionBusyIds.clear();
@@ -395,6 +393,8 @@ export abstract class ChatPaneContext extends ChatPaneLifecycle {
         isUiSelectedGlobalSessionKey(state, state.sessionKey))
     ) {
       retireChatModelSelectionOwnership(state);
+      this.swarmHydrator?.dispose();
+      this.swarmHydrator = null;
     }
     state.client = snapshot.client;
     state.connected = snapshot.phase === "connected";

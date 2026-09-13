@@ -5,6 +5,7 @@ import type { ChatPageHost } from "./chat-state-host.ts";
 import { selectedChatSessionRow } from "./chat-state-route.ts";
 import { createBackgroundTasksProps } from "./components/chat-background-tasks.ts";
 import { openTaskDetailId } from "./components/chat-detail-slot.ts";
+import { clearSessionWorkspacePreviews } from "./components/chat-session-workspace-state.ts";
 import { createSessionWorkspaceProps } from "./components/chat-session-workspace.ts";
 import {
   closeSlot,
@@ -41,10 +42,9 @@ export function openPreferredSidebarPanel(
 }
 
 export function releaseAttachmentWorkspaceOwner(state: ChatPageHost, slot: SidebarSlotId): void {
-  // Attachment views temporarily own Files content. Release that owner
-  // with the slot so reopening Files restores the session workspace.
+  // Closing the Files slot releases its previews, never their underlying files.
   if (slot === "workspace") {
-    state.attachmentSidebarContent = null;
+    clearSessionWorkspacePreviews(state);
   }
 }
 
