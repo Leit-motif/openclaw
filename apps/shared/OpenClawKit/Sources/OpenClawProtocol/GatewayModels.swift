@@ -101,6 +101,7 @@ public enum ChatRunStartupPhase: String, Codable, Sendable {
     case runningSetup = "running_setup"
     case provisioningEnvironment = "provisioning_environment"
     case preparingContext = "preparing_context"
+    case memoryFlushing = "memory_flushing"
     case startingModel = "starting_model"
 }
 
@@ -3299,6 +3300,16 @@ public struct CancelledApprovalSnapshot: Codable, Sendable {
     }
 }
 
+public struct CanvasDocumentPreviewParams: Codable, Sendable {
+    public let html: String
+
+    public init(
+        html: String)
+    {
+        self.html = html
+    }
+}
+
 public struct CanvasDocumentViewParams: Codable, Sendable {
     public let docid: String
 
@@ -4615,6 +4626,7 @@ public struct ConnectParams: Codable, Sendable {
     public let pathenv: String?
     public let role: String?
     public let scopes: [String]?
+    public let modelcatalog: AnyCodable?
     public let device: [String: AnyCodable]?
     public let auth: [String: AnyCodable]?
     public let locale: String?
@@ -4632,6 +4644,7 @@ public struct ConnectParams: Codable, Sendable {
         pathenv: String? = nil,
         role: String? = nil,
         scopes: [String]? = nil,
+        modelcatalog: AnyCodable? = nil,
         device: [String: AnyCodable]? = nil,
         auth: [String: AnyCodable]? = nil,
         locale: String? = nil,
@@ -4648,6 +4661,7 @@ public struct ConnectParams: Codable, Sendable {
         self.pathenv = pathenv
         self.role = role
         self.scopes = scopes
+        self.modelcatalog = modelcatalog
         self.device = device
         self.auth = auth
         self.locale = locale
@@ -4666,6 +4680,7 @@ public struct ConnectParams: Codable, Sendable {
         case pathenv = "pathEnv"
         case role
         case scopes
+        case modelcatalog = "modelCatalog"
         case device
         case auth
         case locale
@@ -16425,6 +16440,7 @@ public struct SessionsListParams: Codable, Sendable {
     public let sortby: AnyCodable?
     public let includeglobal: Bool?
     public let includeunknown: Bool?
+    public let excludesubagents: Bool?
     public let configuredagentsonly: Bool?
     public let includederivedtitles: Bool?
     public let includelastmessage: Bool?
@@ -16451,6 +16467,7 @@ public struct SessionsListParams: Codable, Sendable {
         sortby: AnyCodable? = nil,
         includeglobal: Bool? = nil,
         includeunknown: Bool? = nil,
+        excludesubagents: Bool? = nil,
         configuredagentsonly: Bool? = nil,
         includederivedtitles: Bool? = nil,
         includelastmessage: Bool? = nil,
@@ -16476,6 +16493,7 @@ public struct SessionsListParams: Codable, Sendable {
         self.sortby = sortby
         self.includeglobal = includeglobal
         self.includeunknown = includeunknown
+        self.excludesubagents = excludesubagents
         self.configuredagentsonly = configuredagentsonly
         self.includederivedtitles = includederivedtitles
         self.includelastmessage = includelastmessage
@@ -16503,6 +16521,7 @@ public struct SessionsListParams: Codable, Sendable {
         case sortby = "sortBy"
         case includeglobal = "includeGlobal"
         case includeunknown = "includeUnknown"
+        case excludesubagents = "excludeSubagents"
         case configuredagentsonly = "configuredAgentsOnly"
         case includederivedtitles = "includeDerivedTitles"
         case includelastmessage = "includeLastMessage"
@@ -19379,6 +19398,8 @@ public struct SystemInfoResult: Codable, Sendable {
     public let loadaverage: [AnyCodable]?
     public let memorytotalbytes: Int
     public let memoryfreebytes: Int
+    public let eventloop: [String: AnyCodable]?
+    public let processmemory: [String: AnyCodable]?
     public let disktotalbytes: Int?
     public let diskavailablebytes: Int?
     public let diskpath: String?
@@ -19403,6 +19424,8 @@ public struct SystemInfoResult: Codable, Sendable {
         loadaverage: [AnyCodable]? = nil,
         memorytotalbytes: Int,
         memoryfreebytes: Int,
+        eventloop: [String: AnyCodable]? = nil,
+        processmemory: [String: AnyCodable]? = nil,
         disktotalbytes: Int? = nil,
         diskavailablebytes: Int? = nil,
         diskpath: String? = nil,
@@ -19426,6 +19449,8 @@ public struct SystemInfoResult: Codable, Sendable {
         self.loadaverage = loadaverage
         self.memorytotalbytes = memorytotalbytes
         self.memoryfreebytes = memoryfreebytes
+        self.eventloop = eventloop
+        self.processmemory = processmemory
         self.disktotalbytes = disktotalbytes
         self.diskavailablebytes = diskavailablebytes
         self.diskpath = diskpath
@@ -19451,6 +19476,8 @@ public struct SystemInfoResult: Codable, Sendable {
         case loadaverage = "loadAverage"
         case memorytotalbytes = "memoryTotalBytes"
         case memoryfreebytes = "memoryFreeBytes"
+        case eventloop = "eventLoop"
+        case processmemory = "processMemory"
         case disktotalbytes = "diskTotalBytes"
         case diskavailablebytes = "diskAvailableBytes"
         case diskpath = "diskPath"
@@ -24938,18 +24965,22 @@ public struct SessionsDispatchResult: Codable, Sendable {
 public struct SessionsReclaimParams: Codable, Sendable {
     public let key: String
     public let agentid: String?
+    public let recovertogateway: [String: AnyCodable]?
 
     public init(
         key: String,
-        agentid: String? = nil)
+        agentid: String? = nil,
+        recovertogateway: [String: AnyCodable]? = nil)
     {
         self.key = key
         self.agentid = agentid
+        self.recovertogateway = recovertogateway
     }
 
     private enum CodingKeys: String, CodingKey {
         case key
         case agentid = "agentId"
+        case recovertogateway = "recoverToGateway"
     }
 }
 

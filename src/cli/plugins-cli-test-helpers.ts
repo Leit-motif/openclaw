@@ -13,6 +13,7 @@ import { recordPluginManifestInstallOwner } from "../plugins/manifest-install-ow
 import { createPluginMetadataSnapshotFixture } from "../plugins/plugin-metadata.test-support.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { invokePluginArtifactInstallMock } from "../plugins/test-helpers/install-fixtures.js";
+import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import type { CliMockOutputRuntime } from "./test-runtime-capture.js";
 
 type UnknownMock = Mock<(...args: unknown[]) => unknown>;
@@ -100,7 +101,6 @@ export const readConfigFileSnapshotMock: AsyncUnknownMock = vi.fn();
 export const readConfigFileSnapshotForWriteMock: AsyncUnknownMock = vi.fn();
 export const configWriteMock: AsyncUnknownMock = vi.fn(async () => undefined);
 export const replaceConfigFileMock = vi.fn<ReplaceConfigFileFn>();
-const resolveStateDir: Mock<() => string> = vi.fn(() => "/tmp/openclaw-state");
 export const installPluginFromMarketplaceMock: Mock<InstallPluginFromMarketplaceFn> = vi.fn();
 export const installPluginFromGitSpecMock: Mock<InstallPluginFromGitSpecFn> = vi.fn();
 const listMarketplacePlugins: Mock<ListMarketplacePluginsFn> = vi.fn();
@@ -128,7 +128,7 @@ const writeMockInstalledIndexWithLease: WritePersistedInstalledPluginIndexInstal
       previous,
       revision: mockInstalledPluginIndexRevision,
       mutation: {
-        databasePath: "/tmp/openclaw-state/openclaw.sqlite",
+        databasePath: resolveOpenClawStateSqlitePath(),
         before,
         after: row(
           createTestInstalledPluginIndex({ policyHash: "test-policy", installRecords: records }),
@@ -346,7 +346,6 @@ vi.mock("../config/paths.js", async (importOriginal) => {
     ...actual,
     resolveIsNixMode: () => false,
     resolveIsConfigReadOnly: () => false,
-    resolveStateDir: () => resolveStateDir(),
   };
 });
 
@@ -921,7 +920,6 @@ export function resetPluginsCliTestState() {
   readConfigFileSnapshotForWriteMock.mockReset();
   configWriteMock.mockReset();
   replaceConfigFileMock.mockReset();
-  resolveStateDir.mockReset();
   installPluginFromMarketplaceMock.mockReset();
   listMarketplacePlugins.mockReset();
   resolveMarketplaceInstallShortcutMock.mockReset();
@@ -1021,7 +1019,6 @@ export function resetPluginsCliTestState() {
       followUp: { mode: "auto", requiresRestart: false },
     };
   });
-  resolveStateDir.mockReturnValue("/tmp/openclaw-state");
   resolveMarketplaceInstallShortcutMock.mockResolvedValue(null);
   installPluginFromMarketplaceMock.mockResolvedValue({
     ok: false,
