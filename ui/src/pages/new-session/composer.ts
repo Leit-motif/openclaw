@@ -6,6 +6,7 @@ import { ref } from "lit/directives/ref.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import { icons } from "../../components/icons.ts";
 import type { ImageLightboxItem } from "../../components/image-lightbox.ts";
+import type { LobsterPetMode, LobsterRunOutcome } from "../../components/lobster-pet-contract.ts";
 import { t } from "../../i18n/index.ts";
 import "../../components/tooltip.ts";
 import type { ChatAttachment, HumanMention } from "../../lib/chat/chat-types.ts";
@@ -60,6 +61,15 @@ import {
 import type { NewSessionVisibility } from "./create-params.ts";
 
 export type NewSessionComposerOptions = {
+  critters: {
+    seed: number;
+    mode: LobsterPetMode;
+    runOutcome: LobsterRunOutcome;
+    visitsEnabled: boolean;
+    soundsEnabled: boolean;
+    gatewayVersion: string | null;
+    onVisitsDisabled: () => void;
+  };
   attachmentLimits?: { maxBytes: number; maxImageBytes: number };
   attachments: ChatAttachment[];
   canSubmit: boolean;
@@ -134,7 +144,11 @@ function renderStartControl(options: NewSessionComposerOptions) {
   </openclaw-tooltip>`;
 }
 
+let composerVisit = 0;
+
 export class NewSessionComposerTextareaController {
+  // An opening gets one cast; typing and async picker updates never reroll it.
+  readonly critterVisit = ++composerVisit;
   private textarea: HTMLTextAreaElement | null = null;
   private placeholderFrame: number | null = null;
   private placeholderStartedAt: number | null = null;
@@ -568,6 +582,23 @@ export function renderNewSessionComposer(options: NewSessionComposerOptions) {
           options.requestUpdate();
         }}
       >
+        <openclaw-lobster-pet
+          .seed=${options.critters.seed}
+          .mode=${options.critters.mode}
+          .runOutcome=${options.critters.runOutcome}
+          .visitsEnabled=${options.critters.visitsEnabled}
+          .soundsEnabled=${options.critters.soundsEnabled}
+          .gatewayVersion=${options.critters.gatewayVersion}
+          .onVisitsDisabled=${options.critters.onVisitsDisabled}
+          .floorEnabled=${
+            !composerLocked &&
+            visibleMessage.length === 0 &&
+            options.attachments.length === 0 &&
+            options.pendingAttachmentReads === 0 &&
+            !menuVisible &&
+            !options.textareaController.capabilityMenuOpen
+          }
+        ></openclaw-lobster-pet>
         ${mentionMenu.render(mentionMenuHost, options.requestUpdate)}
         ${options.nativeTerminal ? nothing : renderChatAttachmentInputs(attachmentProps)}
         ${renderAttachmentPreview(attachmentProps)}

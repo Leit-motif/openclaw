@@ -1,4 +1,4 @@
-// Decorative lobster pet that perches on the sidebar footer and mirrors
+// Decorative critter visitor that perches on the new-session composer and mirrors
 // gateway status: it idles (naps, waves, wanders) when nothing is running,
 // scurries while runs are active, and paces worriedly while disconnected.
 // Drawn in the smooth OpenClaw lobster style (see the dreams scene and
@@ -18,6 +18,12 @@ import {
 } from "./lobster-pet-dismiss-menu.ts";
 import * as lobsterLook from "./lobster-pet-look.ts";
 import * as plans from "./lobster-pet-plans.ts";
+import {
+  LobsterComposerGeometry,
+  lobsterLanePoint,
+  lobsterTravelDuration,
+  type LobsterSceneTravel,
+} from "./lobster-pet-scene.ts";
 import { LobsterLedgeTraffic } from "./lobster-pet-traffic.ts";
 
 class LobsterPet extends LitElement {
@@ -29,6 +35,7 @@ class LobsterPet extends LitElement {
   @property({ attribute: false }) mode: contract.LobsterPetMode = "idle";
 
   @property({ attribute: false }) visitsEnabled = true;
+  @property({ attribute: false }) floorEnabled = false;
   @property({ attribute: false }) runOutcome: contract.LobsterRunOutcome = "ok";
   @property({ attribute: false }) soundsEnabled = false;
   @property({ attribute: false }) gatewayVersion: string | null = null;
@@ -40,7 +47,14 @@ class LobsterPet extends LitElement {
   @state() private entering = false;
   @state() private entrance: contract.LobsterPetEntrance = "walk";
   @state() private presence: "out" | "in" | "leaving" = "out";
-  @state() private anchor: plans.LobsterPetAnchor = "ledge";
+  @state() private anchor: plans.LobsterPetAnchor = "top";
+  private readonly geometry = new LobsterComposerGeometry(this, () => this.twinPlanned);
+  private travel: LobsterSceneTravel | null = null;
+  private travelScene = this.geometry.scene;
+  private motionRng: () => number = lobsterLook.mulberry32(0);
+  private passerAnchor: plans.LobsterPetAnchor = "top";
+  private passerHops = false;
+  private shellAnchor: plans.LobsterPetAnchor = "top";
   @state() private scheduledVisiting = false;
   @state() private dismissed = false;
   @state() private dismissMenuPosition: LobsterPetDismissMenuPosition | null = null;
@@ -57,7 +71,13 @@ class LobsterPet extends LitElement {
   private entranceRng: () => number = lobsterLook.mulberry32(0);
   // Passers and the bottle run on their own clocks beside the resident.
   private readonly traffic = new LobsterLedgeTraffic(this, {
-    visitsEnabled: () => this.visitsEnabled,
+    visitsEnabled: () => this.visitsEnabled && !this.dismissed,
+    onPasserStart: (plan) => {
+      this.passerAnchor =
+        plan.floor && this.floorEnabled && this.geometry.scene.floor ? "floor" : "top";
+      this.passerHops =
+        this.passerAnchor === "floor" && plan.hops && this.geometry.scene.passage !== null;
+    },
     onPasserFacing: (facing) => this.watchTraffic(facing),
     onPasserMidCross: () => this.reactToPasser(),
     onPasserDone: () => this.scheduleNextAct(),
@@ -96,6 +116,10 @@ class LobsterPet extends LitElement {
 
   override connectedCallback() {
     super.connectedCallback();
+    if (this.hasUpdated) {
+      this.look = null;
+      this.requestUpdate();
+    }
     document.addEventListener("visibilitychange", this.handleVisibilityChange);
     document.addEventListener("pointermove", this.handleGaze, { passive: true });
   }
@@ -104,6 +128,11 @@ class LobsterPet extends LitElement {
     document.removeEventListener("visibilitychange", this.handleVisibilityChange);
     this.clearActTimers();
     this.clearVisitTimers();
+    this.restartPending = false;
+    this.scheduledVisiting = false;
+    this.presence = "out";
+    this.act = null;
+    this.travel = null;
     if (this.grumpyTimer !== null) {
       window.clearTimeout(this.grumpyTimer);
       this.grumpyTimer = null;
@@ -139,10 +168,14 @@ class LobsterPet extends LitElement {
   }
 
   override willUpdate(changed: PropertyValues<this>) {
+    if (!this.isConnected) {
+      return;
+    }
     const seedChanged = this.look === null || changed.has("seed");
     if (seedChanged) {
       this.look = lobsterLook.createLobsterPetLook(this.seed);
       this.rng = lobsterLook.mulberry32(this.seed ^ 0x9e3779b9);
+      this.motionRng = lobsterLook.mulberry32(this.seed ^ 0xf1002);
       this.visitRng = lobsterLook.mulberry32(this.seed ^ 0x5eaf00d);
       this.entranceRng = lobsterLook.mulberry32((this.seed ^ 0xe27a) >>> 0);
       this.identity = plans.resolveLobsterLoadIdentity(this.seed, this.look);
@@ -166,6 +199,7 @@ class LobsterPet extends LitElement {
       // The Elder never molts: it is already every size it will ever need.
       this.moltPlanned = plans.isLobsterMoltLoad(this.seed) && !this.identity.elder;
       this.twinPlanned = plans.isLobsterTwinLoad(this.seed);
+      this.geometry.scheduleMeasure();
       this.familiarity = dex.getLobsterFamiliarity();
       this.sailorDay = isLobsterDay(new Date());
       this.greetedThisLoad = false;
@@ -197,6 +231,7 @@ class LobsterPet extends LitElement {
         this.dismissMenuPosition = null;
       } else if (changed.get("visitsEnabled") === false) {
         this.dismissed = false;
+        this.traffic.reset(this.seed);
       }
     }
     // Moving day latches once per load, as soon as the gateway version is
@@ -211,6 +246,20 @@ class LobsterPet extends LitElement {
       "data-dex-complete",
       (this.identity?.dexComplete ?? false) && this.visitsEnabled && !this.dismissed,
     );
+    // Losing an empty floor is immediate: never animate back through newly
+    // entered text, an attachment, or a newly widened footer control.
+    if (
+      ((!this.floorEnabled || !this.geometry.scene.floor) && this.anchor === "floor") ||
+      (this.travel && this.travelScene !== this.geometry.scene)
+    ) {
+      this.clearActTimers();
+      this.act = null;
+      this.travel = null;
+      this.anchor = "top";
+      this.restartPending = this.presence === "in";
+    }
+    this.setAttribute("data-spot", this.anchor);
+    this.toggleAttribute("data-floor-enabled", this.floorEnabled);
     this.reconcilePresence();
   }
 
@@ -268,7 +317,7 @@ class LobsterPet extends LitElement {
   }
 
   override updated() {
-    if (!this.restartPending) {
+    if (!this.isConnected || !this.restartPending) {
       return;
     }
     this.restartPending = false;
@@ -445,6 +494,7 @@ class LobsterPet extends LitElement {
   }
 
   private clearActTimers() {
+    this.travel = null;
     for (const timer of [this.idleTimer, this.actEndTimer, this.enterTimer]) {
       if (timer !== null) {
         window.clearTimeout(timer);
@@ -485,9 +535,11 @@ class LobsterPet extends LitElement {
   }
 
   private armArrival(delayMs: number) {
+    if (!this.isConnected) {
+      return;
+    }
     this.visitTimer = window.setTimeout(() => {
       this.visitTimer = null;
-      this.rollPerch();
       this.scheduledVisiting = true;
       this.armDeparture(
         lobsterLook.randomBetween(this.visitRng, plans.VISIT_STAY_MS[0], plans.VISIT_STAY_MS[1]) *
@@ -537,28 +589,21 @@ class LobsterPet extends LitElement {
     this.performAct(reaction);
   }
 
-  // Each arrival re-rolls either the standard side zone or compact bar zone.
-  // Both visit profiles render above the footer divider.
   private rollPerch() {
-    this.anchor = this.visitRng() < 0.6 ? "ledge" : "bar";
-    this.setAttribute("data-spot", this.anchor);
-    const zone = this.currentZone();
-    this.spotPct = Math.round(lobsterLook.randomBetween(this.visitRng, zone[0], zone[1]));
+    this.anchor = "top";
+    this.spotPct = Math.round(lobsterLook.randomBetween(this.visitRng, 12, 88));
     this.facing = this.visitRng() < 0.5 ? 1 : -1;
   }
 
   private currentZone(): readonly [number, number] {
-    if (this.anchor === "bar") {
-      return plans.BAR_ZONE;
-    }
-    const side = this.look?.side ?? "right";
-    return plans.SPOT_ZONES[side];
+    return [0, 100];
   }
 
   private scheduleNextAct() {
     // Guard here, not just at activation: the visibilitychange resume path
     // must also stay inert for reduced-motion users and departed pets.
     if (
+      !this.isConnected ||
       !this.look ||
       this.presence !== "in" ||
       this.vigil ||
@@ -601,26 +646,35 @@ class LobsterPet extends LitElement {
     // acts; overrides, forced departures, and the terminal act release it.
     this.outcomePresenceOwner = presenceOwner;
     this.entering = false;
-    if (act === "scuttle") {
+    if (act === "hop") {
+      this.startFloorHop();
+    } else if (act === "scuttle") {
       this.startScuttle();
     }
-    this.act = act;
-    this.actEndTimer = window.setTimeout(() => {
-      this.actEndTimer = null;
-      this.act = null;
-      if (act === "molt") {
-        this.completeMolt();
-      }
-      if (act === "droop") {
-        // Bad news gets processed lobster-style: tidy the ledge, then move on.
-        this.performAct("sweep", presenceOwner);
-        return;
-      }
-      this.outcomePresenceOwner = null;
-      if (this.wantsVisible()) {
-        this.scheduleNextAct();
-      }
-    }, plans.LOBSTER_PET_ACT_DURATION_MS[act]);
+    const duration = this.travel
+      ? lobsterTravelDuration(this.travel)
+      : plans.LOBSTER_PET_ACT_DURATION_MS[act];
+    this.act = this.travel && !this.travel.hop ? "scuttle" : act;
+    this.actEndTimer = window.setTimeout(
+      () => {
+        this.actEndTimer = null;
+        this.act = null;
+        this.travel = null;
+        if (act === "molt") {
+          this.completeMolt();
+        }
+        if (act === "droop") {
+          // Bad news gets processed lobster-style: tidy the ledge, then move on.
+          this.performAct("sweep", presenceOwner);
+          return;
+        }
+        this.outcomePresenceOwner = null;
+        if (this.wantsVisible()) {
+          this.scheduleNextAct();
+        }
+      },
+      duration + (this.twinPlanned ? 180 : 0),
+    );
   }
 
   // Shedding: the old shell stays behind and slowly fades while the pet
@@ -642,6 +696,7 @@ class LobsterPet extends LitElement {
       };
     }
     this.shellSpotPct = this.spotPct;
+    this.shellAnchor = this.anchor;
     this.shellVisible = true;
     const zone = this.currentZone();
     this.spotPct = Math.min(
@@ -669,7 +724,51 @@ class LobsterPet extends LitElement {
         Math.abs(zone[0] - this.spotPct) > Math.abs(zone[1] - this.spotPct) ? zone[0] : zone[1];
     }
     this.facing = target < this.spotPct ? -1 : 1;
+    const lane = this.geometry.scene[this.anchor];
+    this.travel = {
+      from: lobsterLanePoint(lane, this.spotPct),
+      to: lobsterLanePoint(lane, target),
+      hop: false,
+    };
+    this.travelScene = this.geometry.scene;
     this.spotPct = target;
+  }
+
+  private startFloorHop() {
+    const scene = this.geometry.scene;
+    const passage = scene.passage;
+    if (
+      !this.floorEnabled ||
+      !scene.floor ||
+      !passage ||
+      this.identity?.elder ||
+      (this.anchor === "top" && this.motionRng() >= 0.45)
+    ) {
+      return;
+    }
+    const from = lobsterLanePoint(scene[this.anchor], this.spotPct);
+    // Walk over to the clear column first. A diagonal through the placeholder
+    // would be shorter, but it would not be a safe route.
+    if (from.x < passage[0] || from.x > passage[1]) {
+      const lane = scene[this.anchor];
+      if (lane && lane.end > lane.start) {
+        const target =
+          (((passage[0] + passage[1]) / 2 - lane.start) / (lane.end - lane.start)) * 100;
+        this.travel = { from, to: lobsterLanePoint(lane, target), hop: false };
+        this.spotPct = target;
+      }
+    } else {
+      this.anchor = this.anchor === "top" ? "floor" : "top";
+      const lane = scene[this.anchor];
+      if (!lane) {
+        return;
+      }
+      const x = from.x < (passage[0] + passage[1]) / 2 ? passage[1] : passage[0];
+      this.facing = x < from.x ? -1 : 1;
+      this.spotPct = ((x - lane.start) / (lane.end - lane.start)) * 100;
+      this.travel = { from, to: { x, y: lane.y }, hop: true };
+    }
+    this.travelScene = scene;
   }
 
   override render() {
@@ -687,7 +786,13 @@ class LobsterPet extends LitElement {
       look,
       mode: this.mode,
       presence: this.presence,
-      shellVisible: this.shellVisible,
+      shellVisible:
+        this.shellVisible &&
+        (this.shellAnchor === "top" || (this.floorEnabled && this.geometry.scene.floor !== null)),
+      shellAnchor: this.shellAnchor,
+      scene: this.geometry.scene,
+      travel: this.travel,
+      floorEnabled: this.floorEnabled,
       visitsEnabled: this.visitsEnabled,
       dismissed: this.dismissed,
       passer: this.traffic.passer
@@ -695,6 +800,8 @@ class LobsterPet extends LitElement {
             kind: this.traffic.passer.kind,
             direction: this.traffic.passer.direction,
             crossMs: this.traffic.passerCrossMs(),
+            anchor: this.passerAnchor,
+            hops: this.passerHops,
           }
         : null,
       twinPlanned: this.twinPlanned,
@@ -705,11 +812,9 @@ class LobsterPet extends LitElement {
       vigil: this.vigil,
       elder: identity?.elder ?? false,
       act: this.act,
-      zone: this.currentZone(),
       spotPct: this.spotPct,
       facing: this.facing,
       anchor: this.anchor,
-      barMaxScale: plans.BAR_MAX_SCALE,
       shellScale: this.shellScale,
       shellSpotPct: this.shellSpotPct,
       familiarityVisits: this.familiarity.visits,

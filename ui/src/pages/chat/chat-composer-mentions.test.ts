@@ -85,6 +85,15 @@ function composerFixture(
             onSend: () => send({ draft, mentions }),
           })
         : renderNewSessionComposer({
+            critters: {
+              seed: 0,
+              mode: "idle",
+              runOutcome: "ok",
+              visitsEnabled: false,
+              soundsEnabled: false,
+              gatewayVersion: null,
+              onVisitsDisabled: () => undefined,
+            },
             message: draft,
             mentions,
             getMentions: () => mentions,

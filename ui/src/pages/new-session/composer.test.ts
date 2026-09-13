@@ -24,6 +24,18 @@ import { NewSessionModelControl } from "./model-control.ts";
 const attachmentDrafts: NewSessionAttachmentDraft[] = [];
 const textareaControllers: NewSessionComposerTextareaController[] = [];
 
+function composerContext(snapshot: { client: GatewayBrowserClient | null }) {
+  return {
+    gateway: { snapshot },
+    config: { current: {} },
+    sessions: { state: { result: null } },
+    theme: {
+      settings: { lobsterPetVisits: true, lobsterPetSounds: false },
+      refresh: vi.fn(),
+    },
+  } as unknown as ApplicationContext;
+}
+
 function renderComposer(
   overrides: {
     canSubmit?: boolean;
@@ -284,9 +296,7 @@ describe("new-session composer keyboard submission", () => {
     const response = createDeferred<CommandsListResult>();
     const request = vi.fn(() => response.promise);
     const client = { request } as unknown as GatewayBrowserClient;
-    const context = {
-      gateway: { snapshot: { client } },
-    } as unknown as ApplicationContext;
+    const context = composerContext({ client });
     const { composer, rerenderForAgent, textareaController } = renderComposer({
       agentId: "writer",
       context,
@@ -336,9 +346,7 @@ describe("new-session composer keyboard submission", () => {
       request: vi.fn(),
     } as unknown as GatewayBrowserClient;
     const snapshot = { client: firstClient };
-    const context = {
-      gateway: { snapshot },
-    } as unknown as ApplicationContext;
+    const context = composerContext(snapshot);
     const { composer, rerender, textareaController } = renderComposer({
       agentId: "writer",
       context,
@@ -671,6 +679,68 @@ describe("new-session composer keyboard submission", () => {
     textarea?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }));
     expect(onSubmit).not.toHaveBeenCalled();
   });
+});
+
+describe("new-session composer critter visits", () => {
+  it("keeps visitor preferences and dismissal refresh connected to Appearance", () => {
+    const context = composerContext({ client: null });
+    context.theme.settings.lobsterPetVisits = false;
+    context.theme.settings.lobsterPetSounds = true;
+    const { composer, rerender } = renderComposer({ context });
+    const pet = composer.querySelector<
+      HTMLElement & {
+        visitsEnabled: boolean;
+        soundsEnabled: boolean;
+        onVisitsDisabled: () => void;
+      }
+    >("openclaw-lobster-pet")!;
+    expect(pet.visitsEnabled).toBe(false);
+    expect(pet.soundsEnabled).toBe(true);
+    context.theme.settings.lobsterPetVisits = true;
+    rerender();
+    expect(pet.visitsEnabled).toBe(true);
+    pet.onVisitsDisabled();
+    expect(context.theme.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the visitor cast stable while editing and rerolls only for a new draft or opening", () => {
+    const first = renderComposer();
+    const visitor = () =>
+      first.composer.querySelector<HTMLElement & { seed: number; floorEnabled: boolean }>(
+        "openclaw-lobster-pet",
+      )!;
+    const initial = visitor();
+    const seed = initial.seed;
+    expect(initial.parentElement?.classList.contains("agent-chat__input")).toBe(true);
+    expect(initial.floorEnabled).toBe(true);
+    first.rerender();
+    first.rerenderForAgent("resolved-agent");
+    expect(visitor()).toBe(initial);
+    expect(visitor().seed).toBe(seed);
+    const textarea = first.composer.querySelector("textarea")!;
+    textarea.value = "A prompt takes priority over the visitors";
+    textarea.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    expect(visitor().seed).toBe(seed);
+    expect(visitor().floorEnabled).toBe(false);
+    first.rerenderForDraftRoute("draft:two", "");
+    expect(visitor().seed).not.toBe(seed);
+    expect(visitor().floorEnabled).toBe(true);
+    const reopened = renderComposer();
+    expect(
+      reopened.composer.querySelector<HTMLElement & { seed: number }>("openclaw-lobster-pet")?.seed,
+    ).not.toBe(seed);
+  });
+
+  it.each([{ dictationActive: true }, { submitting: true }, { messageLocked: true }])(
+    "keeps the critters off the floor while the composer is occupied: %j",
+    (state) => {
+      const { composer } = renderComposer(state);
+      expect(
+        composer.querySelector<HTMLElement & { floorEnabled: boolean }>("openclaw-lobster-pet")
+          ?.floorEnabled,
+      ).toBe(false);
+    },
+  );
 });
 
 describe("new-session composer start control", () => {

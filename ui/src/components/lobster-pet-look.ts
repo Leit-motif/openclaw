@@ -25,6 +25,12 @@ import {
   rollChimeraParts,
 } from "./lobster-pet-palettes.ts";
 import {
+  lobsterLanePoint,
+  lobsterTravelDuration,
+  type LobsterComposerScene,
+  type LobsterSceneTravel,
+} from "./lobster-pet-scene.ts";
+import {
   ACTUAL_LOBSTER,
   ASCII_LOBSTER,
   BALLOON_LOBSTER,
@@ -504,7 +510,13 @@ export function renderLobsterPetScene(args: {
   shellVisible: boolean;
   visitsEnabled: boolean;
   dismissed: boolean;
-  passer: { kind: LobsterPasserKind; direction: 1 | -1; crossMs: number } | null;
+  passer: {
+    kind: LobsterPasserKind;
+    direction: 1 | -1;
+    crossMs: number;
+    anchor: "top" | "floor";
+    hops: boolean;
+  } | null;
   twinPlanned: boolean;
   anniversary: boolean;
   entering: boolean;
@@ -513,11 +525,13 @@ export function renderLobsterPetScene(args: {
   vigil: boolean;
   elder: boolean;
   act: string | null;
-  zone: readonly [number, number];
   spotPct: number;
   facing: 1 | -1;
-  anchor: "ledge" | "bar";
-  barMaxScale: number;
+  anchor: "top" | "floor";
+  shellAnchor: "top" | "floor";
+  scene: LobsterComposerScene;
+  travel: LobsterSceneTravel | null;
+  floorEnabled: boolean;
   shellScale: number;
   shellSpotPct: number;
   familiarityVisits: number;
@@ -534,8 +548,10 @@ export function renderLobsterPetScene(args: {
   onContextMenu: (event: MouseEvent) => void;
   onBottleOpen: () => void;
 }) {
-  const anchoredScale = (scale: number) =>
-    args.anchor === "bar" ? Math.min(scale, args.barMaxScale) : scale;
+  if (!args.scene.top) {
+    return nothing;
+  }
+  const lane = args.scene[args.anchor] ?? args.scene.top;
   const renderSprite = (twin: boolean) => {
     // On the month/day anniversary of this palette's first Lobsterdex visit,
     // the party hat overrides whatever accessory the seed rolled.
@@ -562,16 +578,16 @@ export function renderLobsterPetScene(args: {
       .join(" ");
     // The twin tags along on the parent's trailing side and copies every act
     // a beat later (--lob-act-delay feeds each act's animation-delay).
-    const spotPct = twin
-      ? Math.min(
-          args.zone[1],
-          Math.max(args.zone[0], args.spotPct + (args.facing === 1 ? -12 : 12)),
-        )
-      : args.spotPct;
-    const scale = anchoredScale(twin ? args.look.scale * 0.55 : args.look.scale);
-    const style = twin
-      ? `${lobsterPetSpriteStyle(args.look, scale, spotPct, args.facing === 1 ? -1 : 1)};--lob-act-delay:0.18s`
-      : lobsterPetSpriteStyle(args.look, scale, spotPct, args.facing);
+    const point = lobsterLanePoint(lane, args.spotPct);
+    if (twin) {
+      point.x = Math.max(lane.start, Math.min(lane.end, point.x - args.facing * 28));
+    }
+    const scale = twin ? args.look.scale * 0.55 : args.look.scale;
+    const style = `${lobsterPetSpriteStyle(args.look, scale, args.spotPct, args.facing)};--lob-x:${point.x}px;--lob-y:${point.y}px${twin ? ";--lob-act-delay:0.18s" : ""}`;
+    const travel = args.travel;
+    const travelStyle = travel
+      ? `--lob-from-x:${travel.from.x - travel.to.x}px;--lob-from-y:${travel.from.y - travel.to.y}px;--lob-travel-ms:${lobsterTravelDuration(travel)}ms${twin ? ";animation-delay:0.18s" : ""}`
+      : "";
     // Milestone honorifics come from the load-start familiarity snapshot, so
     // a title never pops mid-visit; it is simply there next time.
     const honorific = lobsterHonorific(args.familiarityVisits);
@@ -589,52 +605,57 @@ export function renderLobsterPetScene(args: {
           : name;
     return html`
       <div
-        class=${classes}
-        style=${style}
-        aria-hidden="true"
-        title=${title}
-        @pointerdown=${args.onPointerDown}
-        @pointerup=${args.onPointerUp}
-        @pointercancel=${args.onPointerCancel}
-        @pointerleave=${args.onPointerCancel}
-        @contextmenu=${args.onContextMenu}
+        class="lobster-pet__motion ${travel ? (travel.hop ? "lobster-pet__motion--hop" : "lobster-pet__motion--walk") : ""}"
+        style=${travelStyle}
       >
-        <div class="lobster-pet__body">
-          ${renderLobsterSvg(dressed, {
-            grumpy: args.grumpy,
-            bindle,
-            sailorCap: args.sailorDay,
-          })}
-          ${args.entering && args.entrance === "balloon" ? BALLOON : nothing}
-          ${
-            args.entering && args.entrance === "bubble"
-              ? html`<span class="lobster-pet__entry-bubble"></span>`
-              : nothing
-          }
-          ${
-            args.look.shiny
-              ? html`
-                  <span class="lobster-pet__sparkle" style="--i:0;left:12%;bottom:64%">✦</span>
-                  <span class="lobster-pet__sparkle" style="--i:1;left:76%;bottom:82%">✦</span>
-                `
-              : nothing
-          }
-          <span class="lobster-pet__z" style="--i:0">z</span>
-          <span class="lobster-pet__z" style="--i:1">z</span>
-          <span class="lobster-pet__z" style="--i:2">Z</span>
-          <span class="lobster-pet__bubble" style="--i:0"></span>
-          <span class="lobster-pet__bubble" style="--i:1"></span>
-          <span class="lobster-pet__bubble" style="--i:2"></span>
-          <span class="lobster-pet__heart">♥</span>
-          <svg class="lobster-pet__broom" viewBox="0 0 24 40" aria-hidden="true">
-            <path d="M12 2 L12 24" stroke="#8a5a2b" stroke-width="3" stroke-linecap="round" />
-            <path d="M6 24 L18 24 L21 38 L3 38 Z" fill="#e8b04b" />
-            <path
-              d="M7.5 28 L6.5 36 M12 28 L12 36 M16.5 28 L17.5 36"
-              stroke="#b6791f"
-              stroke-width="1.5"
-            />
-          </svg>
+        <div
+          class=${classes}
+          style=${style}
+          aria-hidden="true"
+          title=${title}
+          @pointerdown=${args.onPointerDown}
+          @pointerup=${args.onPointerUp}
+          @pointercancel=${args.onPointerCancel}
+          @pointerleave=${args.onPointerCancel}
+          @contextmenu=${args.onContextMenu}
+        >
+          <div class="lobster-pet__body">
+            ${renderLobsterSvg(dressed, {
+              grumpy: args.grumpy,
+              bindle,
+              sailorCap: args.sailorDay,
+            })}
+            ${args.entering && args.entrance === "balloon" ? BALLOON : nothing}
+            ${
+              args.entering && args.entrance === "bubble"
+                ? html`<span class="lobster-pet__entry-bubble"></span>`
+                : nothing
+            }
+            ${
+              args.look.shiny
+                ? html`
+                    <span class="lobster-pet__sparkle" style="--i:0;left:12%;bottom:64%">✦</span>
+                    <span class="lobster-pet__sparkle" style="--i:1;left:76%;bottom:82%">✦</span>
+                  `
+                : nothing
+            }
+            <span class="lobster-pet__z" style="--i:0">z</span>
+            <span class="lobster-pet__z" style="--i:1">z</span>
+            <span class="lobster-pet__z" style="--i:2">Z</span>
+            <span class="lobster-pet__bubble" style="--i:0"></span>
+            <span class="lobster-pet__bubble" style="--i:1"></span>
+            <span class="lobster-pet__bubble" style="--i:2"></span>
+            <span class="lobster-pet__heart">♥</span>
+            <svg class="lobster-pet__broom" viewBox="0 0 24 40" aria-hidden="true">
+              <path d="M12 2 L12 24" stroke="#8a5a2b" stroke-width="3" stroke-linecap="round" />
+              <path d="M6 24 L18 24 L21 38 L3 38 Z" fill="#e8b04b" />
+              <path
+                d="M7.5 28 L6.5 36 M12 28 L12 36 M16.5 28 L17.5 36"
+                stroke="#b6791f"
+                stroke-width="1.5"
+              />
+            </svg>
+          </div>
         </div>
       </div>
     `;
@@ -643,7 +664,11 @@ export function renderLobsterPetScene(args: {
   // The shell may outlive the visit while it fades, but dismissal and the
   // visits setting silence it like everything else.
   const showShell = args.shellVisible && args.visitsEnabled && !args.dismissed;
-  const showPasser = args.passer !== null && args.visitsEnabled;
+  const showPasser =
+    args.passer !== null &&
+    args.visitsEnabled &&
+    !args.dismissed &&
+    (args.passer.anchor === "top" || (args.floorEnabled && args.scene.floor !== null));
   // The bottle washes ashore whether or not the pet is around; it belongs to
   // the ledge, not the visit. Like every sprite here it is intentionally
   // aria-hidden and pointer-only, with fortunes on the native-tooltip channel
@@ -656,10 +681,11 @@ export function renderLobsterPetScene(args: {
   // The abandoned shell: the pre-molt silhouette, frozen and slowly fading.
   const shellStyle = lobsterPetSpriteStyle(
     args.look,
-    anchoredScale(args.shellScale),
+    args.shellScale,
     args.shellSpotPct,
     args.facing,
   );
+  const shellPoint = lobsterLanePoint(args.scene[args.shellAnchor], args.shellSpotPct);
   // A pass-through visitor: crosses the ledge once and is gone. Strangers
   // are other lobsters (never your palette); everyone else is at most
   // lobster-adjacent. None perch, none count for the Lobsterdex.
@@ -674,18 +700,31 @@ export function renderLobsterPetScene(args: {
           : `lobster-pet--${args.passer.kind}`,
         args.passer.kind === "stranger" && passerLook.shiny ? "lobster-pet--shiny" : "",
         args.passer.direction === 1 ? "lobster-pet--passer-ltr" : "lobster-pet--passer-rtl",
+        args.passer.hops && args.scene.passage ? "lobster-pet--passer-hop" : "",
       ]
         .filter(Boolean)
         .join(" ")
     : "";
+  const passerLane = args.passer ? args.scene[args.passer.anchor] : null;
+  const passingGap =
+    args.passer?.hops && args.scene.passage
+      ? args.scene.passage
+      : [passerLane?.start ?? 0, passerLane?.end ?? 0];
+  const fromX = args.passer?.direction === 1 ? passingGap[0] : passingGap[1];
+  const toX = args.passer?.direction === 1 ? passingGap[1] : passingGap[0];
   const passerStyle = args.passer
-    ? `${passerBaseStyle(args.passer.kind, args.passer.direction, passerLook)};--lob-cross:${args.passer.crossMs}ms`
+    ? `${passerBaseStyle(args.passer.kind, args.passer.direction, passerLook)};--lob-cross:${args.passer.crossMs}ms;--lob-cross-from:${fromX}px;--lob-cross-to:${toX}px;--lob-y:${passerLane?.y ?? 0}px`
     : "";
+  const bottlePoint = lobsterLanePoint(args.scene.top, args.bottle?.spotPct ?? 50);
   return html`
     ${
       showShell
         ? html`
-            <div class="lobster-pet lobster-pet--shell" style=${shellStyle} aria-hidden="true">
+            <div
+              class="lobster-pet lobster-pet--shell"
+              style=${`${shellStyle};--lob-x:${shellPoint.x}px;--lob-y:${shellPoint.y}px`}
+              aria-hidden="true"
+            >
               <div class="lobster-pet__body">${renderLobsterSvg(args.look, { shell: true })}</div>
             </div>
           `
@@ -696,7 +735,7 @@ export function renderLobsterPetScene(args: {
         ? html`
             <div
               class="lobster-bottle ${args.bottle.opened ? "lobster-bottle--open" : ""}"
-              style="--lob-x:${args.bottle.spotPct}%"
+              style="--lob-x:${bottlePoint.x}px"
               title=${args.bottle.opened ? args.bottle.fortune : "a message in a bottle"}
               aria-hidden="true"
               @pointerdown=${args.onBottleOpen}
