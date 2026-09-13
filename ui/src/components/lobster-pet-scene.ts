@@ -40,7 +40,7 @@ function widestGap(start: number, end: number, obstacles: readonly Box[], paddin
 
 // Coordinates are relative to the input's padding edge. A narrow/mobile footer
 // gets no floor rather than a guessed strip across its controls.
-export function resolveLobsterComposerScene(args: {
+function resolveLobsterComposerScene(args: {
   composer: Box;
   footer: Box | null;
   controls: readonly Box[];

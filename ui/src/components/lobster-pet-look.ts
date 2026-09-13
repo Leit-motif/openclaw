@@ -448,7 +448,7 @@ export function renderLobsterSvg(
   `;
 }
 
-export const SPOT_ZONES = { left: [12, 38], right: [60, 84] } as const;
+const SPOT_ZONES = { left: [12, 38], right: [60, 84] } as const;
 
 // Shared inline vars for every surface that renders a look (ledge sprite,
 // twin, stranger passer). The seeded glint rides
