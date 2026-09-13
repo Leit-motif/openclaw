@@ -27,6 +27,7 @@ export function stageFreeBsdManagedHandoffNativeRuntime(directory: string): stri
   }
   // Koffi adds external search roots for Electron. A sealed handoff may load
   // only its own staged package, including when the original install is gone.
+  // SAFETY: This adds only an optional unknown field; every defined value is rejected.
   if ((process as NodeJS.Process & { resourcesPath?: unknown }).resourcesPath !== undefined) {
     throw new Error("Managed handoff cannot use an external FreeBSD native resource path");
   }
@@ -35,7 +36,9 @@ export function stageFreeBsdManagedHandoffNativeRuntime(directory: string): stri
   const entry = fs.realpathSync(require.resolve("koffi/indirect"));
   const sourceRoot = path.dirname(entry);
   const sourceRequire = createRequire(entry);
+  // SAFETY: The public Koffi entry supplies this API; version and loaded ownership are checked below.
   const koffi = sourceRequire(entry) as KoffiModule;
+  // SAFETY: These fields remain unknown until the name and version checks below.
   const metadata = JSON.parse(fs.readFileSync(path.join(sourceRoot, "package.json"), "utf8")) as {
     name?: unknown;
     version?: unknown;
@@ -82,6 +85,7 @@ export function stageFreeBsdManagedHandoffNativeRuntime(directory: string): stri
 
   const privateEntry = path.join(privateRoot, "indirect.cjs");
   const privateRequire = createRequire(privateEntry);
+  // SAFETY: This copies the public loader; its version and private native path are checked below.
   const privateKoffi = privateRequire(privateEntry) as KoffiModule;
   if (
     privateKoffi.version !== metadata.version ||
