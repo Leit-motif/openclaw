@@ -502,7 +502,13 @@ export function runWithGatewayIndependentRootWorkContinuation<T>(
   return runWithGatewayRootWorkContinuation(run, origin, false);
 }
 
-/** Owns post-return resource cleanup while preserving the live parent's admission. */
+/**
+ * Detached continuations own their async lifetime: like the independent
+ * continuation, a live parent synchronously reserves a tracked root even
+ * across closed admission fences, but the callback runs inside a fresh
+ * detached async work scope so deferred work survives the caller's scope
+ * closing instead of inheriting it.
+ */
 export function runWithGatewayDetachedWorkContinuation<T>(
   run: () => Promise<T>,
   origin = "independent",
