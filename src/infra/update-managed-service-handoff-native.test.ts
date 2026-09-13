@@ -10,10 +10,7 @@ const { createRequireMock, resolveRuntimeWorkerUrlMock } = vi.hoisted(() => ({
   createRequireMock: vi.fn(),
   resolveRuntimeWorkerUrlMock: vi.fn(),
 }));
-vi.mock("node:module", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("node:module")>()),
-  createRequire: createRequireMock,
-}));
+vi.mock("node:module", () => ({ createRequire: createRequireMock }));
 vi.mock("./runtime-worker-url.js", () => ({
   resolveRuntimeWorkerUrl: resolveRuntimeWorkerUrlMock,
 }));
@@ -235,8 +232,11 @@ describe("managed handoff native staging", () => {
         expect(createRequireMock).not.toHaveBeenCalled();
       });
     } finally {
-      if (previous) Object.defineProperty(process, "resourcesPath", previous);
-      else Reflect.deleteProperty(process, "resourcesPath");
+      if (previous) {
+        Object.defineProperty(process, "resourcesPath", previous);
+      } else {
+        Reflect.deleteProperty(process, "resourcesPath");
+      }
     }
   });
 });
