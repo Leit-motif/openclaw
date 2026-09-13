@@ -127,7 +127,9 @@ async function discoverSourceNamespace(
             "--type",
             "container",
             "--format",
-            '{"Id":{{json .Id}},"Mounts":{{json .Mounts}},"Tmpfs":{{json .HostConfig.Tmpfs}}}',
+            // Docker templates use the Go field ID. The JSON spelling Id forces
+            // raw-map fallback, where an omitted Tmpfs field fails inspection.
+            '{"Id":{{json .ID}},"Mounts":{{json .Mounts}},"Tmpfs":{{json .HostConfig.Tmpfs}}}',
             candidate,
           ],
           {

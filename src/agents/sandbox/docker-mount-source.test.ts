@@ -77,6 +77,14 @@ describe("Docker source namespace", () => {
     expect(first).toEqual(parseInspectedSandboxMounts([wireMount]));
     expect(second).toBe(first);
     expect(execContainer).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(execContainer).mock.calls[0]?.[1]).toEqual([
+      "inspect",
+      "--type",
+      "container",
+      "--format",
+      '{"Id":{{json .ID}},"Mounts":{{json .Mounts}},"Tmpfs":{{json .HostConfig.Tmpfs}}}',
+      "gateway-hostname",
+    ]);
     expect(vi.mocked(execContainer).mock.calls[1]?.[1].slice(0, 4)).toEqual([
       "exec",
       id,

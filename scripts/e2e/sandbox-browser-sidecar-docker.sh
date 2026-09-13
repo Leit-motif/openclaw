@@ -21,9 +21,8 @@ BROWSER_PREFIX="openclaw-e2e-browser-${RUN_ID}-"
 NETWORK_NAME="openclaw-e2e-browser-${RUN_ID}"
 SCENARIO_ROOT="$(mktemp -d /tmp/openclaw-sandbox-browser-sidecar.XXXXXX)"
 GATEWAY_ROOT="/home/appuser/.openclaw-e2e"
-SESSION_KEY="agent:main:sandbox-browser-sidecar"
+BASE_SESSION_KEY="agent:main:sandbox-browser-sidecar:${RUN_ID}"
 WORKSPACE_HASH="$(node -e 'process.stdout.write(require("node:crypto").createHash("sha256").update(process.argv[1]).digest("hex").slice(0, 32))' "$GATEWAY_ROOT/workspace")"
-SCOPE_KEY="${SESSION_KEY}:workspace:${WORKSPACE_HASH}"
 BUILD_DIR="$(mktemp -d /tmp/openclaw-sandbox-browser-sidecar-build.XXXXXX)"
 DOCKER_SOCKET="${OPENCLAW_DOCKER_SOCKET:-/var/run/docker.sock}"
 SCENARIO_SOURCE="$ROOT_DIR/scripts/e2e/lib/sandbox-browser-sidecar/scenario.mjs"
@@ -38,10 +37,15 @@ docker_socket_gid() {
 }
 
 remove_task_containers() {
-  local name
-  while IFS= read -r name; do
-    docker_e2e_docker_cmd rm -f "$name" >/dev/null 2>&1 || true
-  done < <(docker_e2e_docker_cmd ps -a --filter "label=openclaw.sessionKey=$SCOPE_KEY" --format '{{.Names}}' 2>/dev/null || true)
+  local access scope_key name
+  # Retry leftovers from every mode, without matching another run that uses the
+  # same Gateway workspace path and therefore the same workspace hash.
+  for access in none ro rw; do
+    scope_key="${BASE_SESSION_KEY}:$access:workspace:${WORKSPACE_HASH}"
+    while IFS= read -r name; do
+      docker_e2e_docker_cmd rm -f "$name" >/dev/null 2>&1 || true
+    done < <(docker_e2e_docker_cmd ps -a --filter "label=openclaw.sessionKey=$scope_key" --format '{{.Names}}' 2>/dev/null || true)
+  done
 }
 
 cleanup() {
@@ -103,8 +107,7 @@ SOCKET_GID="$(docker_socket_gid)"
 
 echo "Running package-backed sandbox browser sidecar Docker E2E..."
 for access in none ro rw; do
-SESSION_KEY="agent:main:sandbox-browser-sidecar:$access"
-SCOPE_KEY="${SESSION_KEY}:workspace:${WORKSPACE_HASH}"
+SESSION_KEY="${BASE_SESSION_KEY}:$access"
 docker_e2e_run_logged_print_with_harness sandbox-browser-sidecar \
   --network host \
   --hostname sandbox-gateway-e2e \
