@@ -1,6 +1,12 @@
-/// <reference types="vite/client" />
+import type { ImportGlobFunction } from "vite/types/importGlob.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchPluginActivityIconBlobUrl } from "./icon-loader.ts";
+
+declare global {
+  interface ImportMeta {
+    glob: ImportGlobFunction;
+  }
+}
 
 const bundledActivityIcons = import.meta.glob<string>(
   [

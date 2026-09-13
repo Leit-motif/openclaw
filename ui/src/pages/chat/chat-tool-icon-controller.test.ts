@@ -231,18 +231,19 @@ describe("chat tool icon ownership", () => {
         method === "plugins.list"
           ? {
               ...plugins,
-              plugins: plugins.plugins.map((plugin) => ({
-                ...plugin,
-                hasActivityIcon: defaultAvailable,
-                activityIconTools: [names[2]!, "browser"],
-              })),
+              plugins: plugins.plugins.map((plugin) =>
+                Object.assign({}, plugin, {
+                  hasActivityIcon: defaultAvailable,
+                  activityIconTools: [names[2]!, "browser"],
+                }),
+              ),
             }
           : {
               ...catalog,
               groups: [
                 {
                   ...catalog.groups[0]!,
-                  tools: names.map((id) => ({ ...catalog.groups[0]!.tools[0]!, id })),
+                  tools: names.map((id) => Object.assign({}, catalog.groups[0]!.tools[0]!, { id })),
                 },
               ],
             },
