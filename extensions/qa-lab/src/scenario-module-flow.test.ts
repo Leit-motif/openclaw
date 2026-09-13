@@ -6,6 +6,10 @@ import { runScenarioFlow } from "./scenario-flow-runner.js";
 import { qaScenarioModuleFlow } from "./scenario-module-flow.js";
 import { runQaSuiteScenarioSteps } from "./suite-runtime-flow.js";
 
+function javascriptDataModule(source: string): string {
+  return `data:text/javascript;base64,${Buffer.from(source, "utf8").toString("base64")}`;
+}
+
 describe("QA scenario module flow", () => {
   it.each([
     ["canonical timing", { timing: { rttMs: 1750 } }],
@@ -18,7 +22,7 @@ describe("QA scenario module flow", () => {
       "}",
     ].join("\n");
     const moduleFlow = qaScenarioModuleFlow.moduleSchema.parse({
-      module: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+      module: javascriptDataModule(moduleSource),
       call: "runScenario",
     });
     const flow = qaScenarioModuleFlow.resolveFlow(moduleFlow, "Discord canary") as QaScenarioFlow;
@@ -75,7 +79,7 @@ describe("QA scenario module flow", () => {
       "}",
     ].join("\n");
     const moduleFlow = qaScenarioModuleFlow.moduleSchema.parse({
-      module: `data:text/javascript,${encodeURIComponent(moduleSource)}`,
+      module: javascriptDataModule(moduleSource),
       call: "runScenario",
     });
     const flow = qaScenarioModuleFlow.resolveFlow(moduleFlow, "Discord canary") as QaScenarioFlow;
