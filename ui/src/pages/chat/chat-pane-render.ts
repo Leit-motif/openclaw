@@ -372,7 +372,11 @@ export class ChatPane extends ChatPaneLayoutRender {
       showThinking: state.settings.chatShowThinking,
       showToolCalls: state.settings.chatShowToolCalls,
       persistCommentary: state.settings.chatPersistCommentary !== false,
-      loading: catalogKey ? this.catalogLoading : state.chatLoading,
+      // Recovery can temporarily withhold the first turn after history loaded empty.
+      // Keep its pane loading until startup can display the retained message again.
+      loading: catalogKey
+        ? this.catalogLoading
+        : state.chatLoading || (sendHoldReason !== null && placementStartup === null),
       routeLoadingSkeleton: this.routeLoadingSkeleton && initialHistoryUnavailable,
       sending:
         (placementStartup !== null && placementStartup.phase !== "failed") ||
