@@ -20,6 +20,7 @@ import {
 } from "../config/sessions/session-accessor.js";
 import { readExactSessionEntryRowForCanonicalRepair } from "../config/sessions/session-accessor.sqlite-canonical-repair.js";
 import { writeSessionEntry } from "../config/sessions/session-accessor.sqlite-entry-store.js";
+import type { SessionAcpMeta } from "../config/sessions/types.js";
 import { readMemoryHostEventRecords } from "../memory-host-sdk/events.js";
 import { loadNodeHostConfig } from "../node-host/config.js";
 import { readChannelPairingStateSnapshot } from "../pairing/pairing-store-sqlite.test-helpers.js";
@@ -743,6 +744,27 @@ async function createLegacyAuditLedger(stateDir: string): Promise<string> {
     db.close();
   }
   return databasePath;
+}
+
+function createLegacyAcpSessionEntry(
+  sessionId: string,
+  updatedAt: number,
+  agent: string,
+  runtimeSessionName: string,
+  lastActivityAt: number,
+) {
+  return {
+    sessionId,
+    updatedAt,
+    acp: {
+      backend: "test",
+      agent,
+      runtimeSessionName,
+      mode: "persistent",
+      state: "idle",
+      lastActivityAt,
+    } satisfies SessionAcpMeta,
+  };
 }
 
 async function createLegacyStateFixture(params?: { includePreKey?: boolean }) {
@@ -2327,30 +2349,20 @@ describe("state migrations", () => {
       unknown
     >;
     targetStore["agent:main:desk"] = { sessionId: "explicit-foreign", updatedAt: 30 };
-    targetStore["voice:15550001111"] = {
-      sessionId: "shared-voice",
-      updatedAt: 20,
-      acp: {
-        backend: "test",
-        agent: "worker-1",
-        runtimeSessionName: "shared-runtime",
-        mode: "persistent",
-        state: "idle",
-        lastActivityAt: 20,
-      },
-    };
-    targetStore["agent:worker-1:acp:task"] = {
-      sessionId: "canonical-acp",
-      updatedAt: 15,
-      acp: {
-        backend: "test",
-        agent: "worker-1",
-        runtimeSessionName: "canonical-runtime",
-        mode: "persistent",
-        state: "idle",
-        lastActivityAt: 15,
-      },
-    };
+    targetStore["voice:15550001111"] = createLegacyAcpSessionEntry(
+      "shared-voice",
+      20,
+      "worker-1",
+      "shared-runtime",
+      20,
+    );
+    targetStore["agent:worker-1:acp:task"] = createLegacyAcpSessionEntry(
+      "canonical-acp",
+      15,
+      "worker-1",
+      "canonical-runtime",
+      15,
+    );
     await fs.writeFile(targetStorePath, `${JSON.stringify(targetStore, null, 2)}\n`, "utf8");
     cfg.session = { ...cfg.session, store: targetStorePath };
     const legacyStorePath = path.join(stateDir, "sessions", "sessions.json");
@@ -2720,18 +2732,13 @@ describe("state migrations", () => {
         targetStorePath,
         JSON.stringify({
           "agent:main:desk": { sessionId: "foreign-main", updatedAt: 30 },
-          "agent:worker-1:main": {
-            sessionId: "worker-main",
-            updatedAt: 20,
-            acp: {
-              backend: "test",
-              agent: "worker-1",
-              runtimeSessionName: "legacy-runtime",
-              mode: "persistent",
-              state: "idle",
-              lastActivityAt: 20,
-            },
-          },
+          "agent:worker-1:main": createLegacyAcpSessionEntry(
+            "worker-main",
+            20,
+            "worker-1",
+            "legacy-runtime",
+            20,
+          ),
           "voice:15550001111": { sessionId: "legacy-voice", updatedAt: 10 },
         }),
         "utf8",
@@ -2858,18 +2865,7 @@ describe("state migrations", () => {
     await fs.writeFile(
       outsideStorePath,
       JSON.stringify({
-        [pendingKey]: {
-          sessionId: pendingKey,
-          updatedAt: 10,
-          acp: {
-            backend: "test",
-            agent: "main",
-            runtimeSessionName: "outside-runtime",
-            mode: "persistent",
-            state: "idle",
-            lastActivityAt: 10,
-          },
-        },
+        [pendingKey]: createLegacyAcpSessionEntry(pendingKey, 10, "main", "outside-runtime", 10),
       }),
       "utf8",
     );
@@ -2918,18 +2914,13 @@ describe("state migrations", () => {
     await fs.writeFile(
       targetStorePath,
       JSON.stringify({
-        "agent:main:task": {
-          sessionId: "canonical-acp",
-          updatedAt: 10,
-          acp: {
-            backend: "test",
-            agent: "main",
-            runtimeSessionName: "hardlink-runtime",
-            mode: "persistent",
-            state: "idle",
-            lastActivityAt: 10,
-          },
-        },
+        "agent:main:task": createLegacyAcpSessionEntry(
+          "canonical-acp",
+          10,
+          "main",
+          "hardlink-runtime",
+          10,
+        ),
       }),
       "utf8",
     );
@@ -2971,18 +2962,13 @@ describe("state migrations", () => {
     await fs.writeFile(
       targetStorePath,
       JSON.stringify({
-        "agent:main:main": {
-          sessionId: "legacy-global",
-          updatedAt: 20,
-          acp: {
-            backend: "test",
-            agent: "main",
-            runtimeSessionName: "global-runtime",
-            mode: "persistent",
-            state: "idle",
-            lastActivityAt: 20,
-          },
-        },
+        "agent:main:main": createLegacyAcpSessionEntry(
+          "legacy-global",
+          20,
+          "main",
+          "global-runtime",
+          20,
+        ),
       }),
       "utf8",
     );
@@ -3032,18 +3018,13 @@ describe("state migrations", () => {
     await fs.writeFile(
       storePath,
       JSON.stringify({
-        "agent:main:main": {
-          sessionId: "foreign-main",
-          updatedAt: 20,
-          acp: {
-            backend: "test",
-            agent: "voice",
-            runtimeSessionName: "foreign-runtime",
-            mode: "persistent",
-            state: "idle",
-            lastActivityAt: 20,
-          },
-        },
+        "agent:main:main": createLegacyAcpSessionEntry(
+          "foreign-main",
+          20,
+          "voice",
+          "foreign-runtime",
+          20,
+        ),
       }),
       "utf8",
     );
@@ -3121,18 +3102,7 @@ describe("state migrations", () => {
         Object.fromEntries(
           cases.map(({ legacyKey, sessionId, runtimeSessionName }) => [
             legacyKey,
-            {
-              sessionId,
-              updatedAt: 10,
-              acp: {
-                backend: "test",
-                agent: "voice",
-                runtimeSessionName,
-                mode: "persistent",
-                state: "idle",
-                lastActivityAt: 10,
-              },
-            },
+            createLegacyAcpSessionEntry(sessionId, 10, "voice", runtimeSessionName, 10),
           ]),
         ),
       ),
@@ -3213,42 +3183,27 @@ describe("state migrations", () => {
     await fs.writeFile(
       storePath,
       JSON.stringify({
-        "voice:15550001111": {
-          sessionId: "shared-voice",
-          updatedAt: 20,
-          acp: {
-            backend: "test",
-            agent: "voice",
-            runtimeSessionName: "shared-runtime",
-            mode: "persistent",
-            state: "idle",
-            lastActivityAt: 20,
-          },
-        },
-        "agent:voice::matrix:channel:!room:example.org": {
-          sessionId: "malformed-owner",
-          updatedAt: 10,
-          acp: {
-            backend: "test",
-            agent: "voice",
-            runtimeSessionName: "malformed-runtime",
-            mode: "persistent",
-            state: "idle",
-            lastActivityAt: 10,
-          },
-        },
-        "agent:_bad:opaque": {
-          sessionId: "invalid-owner",
-          updatedAt: 5,
-          acp: {
-            backend: "test",
-            agent: "voice",
-            runtimeSessionName: "invalid-runtime",
-            mode: "persistent",
-            state: "idle",
-            lastActivityAt: 5,
-          },
-        },
+        "voice:15550001111": createLegacyAcpSessionEntry(
+          "shared-voice",
+          20,
+          "voice",
+          "shared-runtime",
+          20,
+        ),
+        "agent:voice::matrix:channel:!room:example.org": createLegacyAcpSessionEntry(
+          "malformed-owner",
+          10,
+          "voice",
+          "malformed-runtime",
+          10,
+        ),
+        "agent:_bad:opaque": createLegacyAcpSessionEntry(
+          "invalid-owner",
+          5,
+          "voice",
+          "invalid-runtime",
+          5,
+        ),
       }),
       "utf8",
     );
@@ -3314,18 +3269,13 @@ describe("state migrations", () => {
     await fs.writeFile(
       outsideStorePath,
       JSON.stringify({
-        "agent:main:opaque": {
-          sessionId: "outside-session",
-          updatedAt: 10,
-          acp: {
-            backend: "test",
-            agent: "main",
-            runtimeSessionName: "outside-runtime",
-            mode: "persistent",
-            state: "idle",
-            lastActivityAt: 10,
-          },
-        },
+        "agent:main:opaque": createLegacyAcpSessionEntry(
+          "outside-session",
+          10,
+          "main",
+          "outside-runtime",
+          10,
+        ),
       }),
       "utf8",
     );
@@ -3471,18 +3421,13 @@ describe("state migrations", () => {
     await fs.writeFile(
       storePath,
       JSON.stringify({
-        "agent:main:existing": {
-          sessionId: "existing-main",
-          updatedAt: 20,
-          acp: {
-            backend: "test",
-            agent: "main",
-            runtimeSessionName: "existing-runtime",
-            mode: "persistent",
-            state: "idle",
-            lastActivityAt: 20,
-          },
-        },
+        "agent:main:existing": createLegacyAcpSessionEntry(
+          "existing-main",
+          20,
+          "main",
+          "existing-runtime",
+          20,
+        ),
       }),
       "utf8",
     );
@@ -3491,18 +3436,13 @@ describe("state migrations", () => {
     await fs.writeFile(
       legacyStorePath,
       JSON.stringify({
-        "agent:voice:main": {
-          sessionId: "voice-main",
-          updatedAt: 10,
-          acp: {
-            backend: "test",
-            agent: "voice",
-            runtimeSessionName: "voice-runtime",
-            mode: "persistent",
-            state: "idle",
-            lastActivityAt: 10,
-          },
-        },
+        "agent:voice:main": createLegacyAcpSessionEntry(
+          "voice-main",
+          10,
+          "voice",
+          "voice-runtime",
+          10,
+        ),
       }),
       "utf8",
     );
