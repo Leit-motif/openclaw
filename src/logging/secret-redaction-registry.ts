@@ -1,27 +1,41 @@
 import { pruneMapToMaxSize } from "../infra/map-size.js";
+import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { escapeRegExp } from "../shared/regexp.js";
 
 const MIN_SECRET_VALUE_LENGTH = 6;
 const MAX_SECRET_VALUES = 512;
 
-const registeredValues = new Map<string, true>();
-let registryRevision = 0;
-let compiledMatcher: { prefixes: RegExp; buckets: Map<string, string[]> } | undefined;
-let firstChars: Set<string> | undefined;
+type SecretRedactionRegistryState = {
+  registeredValues: Map<string, true>;
+  registryRevision: number;
+  compiledMatcher: { prefixes: RegExp; buckets: Map<string, string[]> } | undefined;
+  firstChars: Set<string> | undefined;
+};
+
+// Native and source module copies share membership and matcher invalidation.
+const state = resolveGlobalSingleton<SecretRedactionRegistryState>(
+  Symbol.for("openclaw.secretRedactionRegistry"),
+  () => ({
+    registeredValues: new Map<string, true>(),
+    registryRevision: 0,
+    compiledMatcher: undefined,
+    firstChars: undefined,
+  }),
+);
 
 function invalidateMatcher(): void {
-  registryRevision += 1;
-  firstChars = undefined;
-  compiledMatcher = undefined;
+  state.registryRevision += 1;
+  state.firstChars = undefined;
+  state.compiledMatcher = undefined;
 }
 
 function registerOneSecretValue(value: string): void {
-  if (registeredValues.delete(value)) {
-    registeredValues.set(value, true);
+  if (state.registeredValues.delete(value)) {
+    state.registeredValues.set(value, true);
     return;
   }
-  registeredValues.set(value, true);
-  pruneMapToMaxSize(registeredValues, MAX_SECRET_VALUES);
+  state.registeredValues.set(value, true);
+  pruneMapToMaxSize(state.registeredValues, MAX_SECRET_VALUES);
   invalidateMatcher();
 }
 
@@ -48,16 +62,16 @@ export function registerSecretValueForRedaction(value: string): void {
 
 /** Returns whether a value has SecretRef provenance in the process registry. */
 export function isSecretValueRegisteredForRedaction(value: string): boolean {
-  return registeredValues.has(value);
+  return state.registeredValues.has(value);
 }
 
 export function hasRegisteredSecretValuesForRedaction(): boolean {
-  return registeredValues.size > 0;
+  return state.registeredValues.size > 0;
 }
 
 /** Changes with registry membership, including bounded eviction and test resets. */
 export function getSecretRedactionRegistryRevision(): number {
-  return registryRevision;
+  return state.registryRevision;
 }
 
 /** Replaces registered exact values while preserving the caller's mask convention. */
@@ -65,13 +79,13 @@ export function redactRegisteredSecretValues(
   text: string,
   mask: (value: string, index: number) => string,
 ): string {
-  if (!text || registeredValues.size === 0) {
+  if (!text || state.registeredValues.size === 0) {
     return text;
   }
   let couldMatch = false;
   // Registration can add several surface forms; prepare their probe once on first use.
-  firstChars ??= new Set([...registeredValues.keys()].map((value) => value.charAt(0)));
-  for (const firstChar of firstChars) {
+  state.firstChars ??= new Set([...state.registeredValues.keys()].map((value) => value.charAt(0)));
+  for (const firstChar of state.firstChars) {
     if (text.includes(firstChar)) {
       couldMatch = true;
       break;
@@ -80,9 +94,9 @@ export function redactRegisteredSecretValues(
   if (!couldMatch) {
     return text;
   }
-  if (!compiledMatcher) {
+  if (!state.compiledMatcher) {
     const buckets = new Map<string, string[]>();
-    for (const value of [...registeredValues.keys()].toSorted(
+    for (const value of [...state.registeredValues.keys()].toSorted(
       (left, right) => right.length - left.length,
     )) {
       const prefix = value.slice(0, MIN_SECRET_VALUE_LENGTH);
@@ -95,12 +109,12 @@ export function redactRegisteredSecretValues(
     }
     // Supported store values can exceed the regex engine's literal span limit.
     // Compile fixed-width prefixes; verify complete values against the text.
-    compiledMatcher = {
+    state.compiledMatcher = {
       prefixes: new RegExp([...buckets.keys()].map(escapeRegExp).join("|"), "g"),
       buckets,
     };
   }
-  const { prefixes, buckets } = compiledMatcher;
+  const { prefixes, buckets } = state.compiledMatcher;
   const matches: { index: number; value: string }[] = [];
   prefixes.lastIndex = 0;
   for (let match = prefixes.exec(text); match; match = prefixes.exec(text)) {
@@ -124,7 +138,7 @@ export function redactRegisteredSecretValues(
 }
 
 function resetSecretRedactionRegistryForTest(): void {
-  registeredValues.clear();
+  state.registeredValues.clear();
   invalidateMatcher();
 }
 
