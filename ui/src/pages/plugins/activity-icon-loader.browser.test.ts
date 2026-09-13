@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchPluginActivityIconBlobUrl } from "./icon-loader.ts";
 
