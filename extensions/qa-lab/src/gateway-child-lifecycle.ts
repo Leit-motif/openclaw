@@ -106,7 +106,9 @@ export class QaGatewayChildLifecycle {
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
             const label = owned.kind === "cli" ? "CLI" : "child";
-            reject(new Error(`qa gateway ${label} stdio did not close after process-tree shutdown`));
+            reject(
+              new Error(`qa gateway ${label} stdio did not close after process-tree shutdown`),
+            );
           }, QA_GATEWAY_CHILD_DRAIN_TIMEOUT_MS);
         }),
       ]);
