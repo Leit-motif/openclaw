@@ -35,6 +35,9 @@ import {
 } from "./installed-plugin-index.js";
 import { createInstalledPluginOwnershipResolver } from "./installed-plugin-package-ownership.js";
 import {
+  type ManagedPluginIconSource,
+  resolvePluginIconSource,
+  resolvePluginActivityIconSource,
   type ManagedPluginCatalogEntry,
   type ManagedPluginCatalog,
   getManagedPluginCache,
@@ -131,39 +134,6 @@ function resolveManagedPluginDiagnostics(
   return diagnostics;
 }
 
-export type ManagedPluginIconSource = { kind: "file"; path: string; rootPath: string };
-
-function resolvePluginIconSource(params: {
-  metadata: PluginMetadataSnapshot;
-  pluginId: string;
-}): ManagedPluginIconSource | undefined {
-  const normalizedPluginId = params.metadata.normalizePluginId(params.pluginId);
-  const manifest = params.metadata.byPluginId.get(normalizedPluginId);
-  const localIconPath = normalizeOptionalString(manifest?.iconPath);
-  if (localIconPath && manifest) {
-    return { kind: "file", path: localIconPath, rootPath: manifest.rootDir };
-  }
-  return undefined;
-}
-
-function resolvePluginActivityIconSource(params: {
-  metadata: PluginMetadataSnapshot;
-  pluginId: string;
-  toolName?: string;
-}): ManagedPluginIconSource | undefined {
-  const pluginId = params.metadata.normalizePluginId(params.pluginId);
-  const manifest = params.metadata.byPluginId.get(pluginId);
-  if (!manifest) {
-    return undefined;
-  }
-  const overrides = manifest.toolActivityIconPaths;
-  const override =
-    params.toolName && overrides && Object.hasOwn(overrides, params.toolName)
-      ? overrides[params.toolName]
-      : undefined;
-  const iconPath = override ?? manifest.activityIconPath;
-  return iconPath ? { kind: "file", path: iconPath, rootPath: manifest.rootDir } : undefined;
-}
 function resolveManagedPluginMetadataParams(config: OpenClawConfig, env: NodeJS.ProcessEnv) {
   const workspace = resolvePluginControlPlaneWorkspace({ config, env });
   return {
@@ -451,7 +421,7 @@ export const listManagedPlugins = withManagedPluginCache(
         plugin.hasActivityIcon = true;
       }
       if (iconOwner?.toolActivityIconPaths) {
-        plugin.activityIconTools = Object.keys(iconOwner.toolActivityIconPaths).sort();
+        plugin.activityIconTools = Object.keys(iconOwner.toolActivityIconPaths).toSorted();
       }
       if (manifest?.channels.length) {
         plugin.channelIds = [...manifest.channels];

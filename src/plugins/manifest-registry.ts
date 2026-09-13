@@ -237,7 +237,7 @@ function resolvePortableActivityIcons(params: {
     return { activityIconPath };
   }
   const paths: Array<[string, string]> = [];
-  for (const name of entries.map((entry) => entry.name).sort()) {
+  for (const name of entries.map((entry) => entry.name).toSorted()) {
     const toolName = name.endsWith(".svg") ? name.slice(0, -4) : "";
     if (!isPluginActivityToolName(toolName)) {
       continue;
