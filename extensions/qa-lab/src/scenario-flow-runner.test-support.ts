@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
+import timersPromises from "node:timers/promises";
+import { promisify } from "node:util";
 import { createOutboundPayloadPlan } from "openclaw/plugin-sdk/channel-outbound";
 import { vi } from "vitest";
 import { createQaBusState } from "./bus-state.js";
@@ -10,14 +13,6 @@ import { readQaScenarioById, type QaScenarioFlow } from "./scenario-catalog.js";
 import { runScenarioFlow } from "./scenario-flow-runner.js";
 import type { QaSuiteStep } from "./suite-types.js";
 import { createTempDirHarness } from "./temp-dir.test-helper.js";
-
-vi.mock("node:timers/promises", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("node:timers/promises")>()),
-  setTimeout: <T>(delay?: number, value?: T) =>
-    new Promise<T>((resolve) => {
-      globalThis.setTimeout(resolve, delay, value as T);
-    }),
-}));
 
 function formatTestTranscript(state: ReturnType<typeof createQaBusState>) {
   return state
@@ -363,7 +358,9 @@ export async function assertTelegramRichObservationFlow(
     return marker;
   };
   vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  const schedule = vi.spyOn(timersPromises, "setTimeout").mockImplementation(promisify(setTimeout));
   try {
+    syncBuiltinESMExports();
     const pending = runLoadedScenarioFlow("telegram-rich-inline-composition", {
       api: {
         fs,
@@ -611,7 +608,9 @@ export async function assertTelegramRichObservationFlow(
     for (const timer of timers) {
       clearTimeout(timer);
     }
+    schedule.mockRestore();
     vi.useRealTimers();
+    syncBuiltinESMExports();
     await tempDirs.cleanup();
   }
 }

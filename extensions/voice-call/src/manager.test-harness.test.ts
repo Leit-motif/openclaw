@@ -1,35 +1,24 @@
-import { AsyncLocalStorage } from "node:async_hooks";
+import { AsyncLocalStorage, createHook } from "node:async_hooks";
 import { setImmediate } from "node:timers/promises";
-import { expect, it, onTestFinished, vi } from "vitest";
+import { expect, it, onTestFinished } from "vitest";
 import { createManagerHarness, markCallAnswered } from "./manager.test-harness.js";
 
 it("finalizes each fixture's calls and destroys its real duration and transcript timers", async () => {
   const ownership = new AsyncLocalStorage<"duration" | "transcript">();
   const allocated = { duration: 0, transcript: 0 };
-  const pending = new Map<Parameters<typeof clearTimeout>[0], "duration" | "transcript">();
-  const originalSetTimeout = globalThis.setTimeout;
-  const originalClearTimeout = globalThis.clearTimeout;
-  // oxlint-disable-next-line no-warning-comments -- Keep the upstream removal condition beside the workaround.
-  // TODO(oven-sh/bun#35391): Use async_hooks again after Bun emits Timeout lifecycle events.
-  const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
-    callback: (...args: unknown[]) => void,
-    timeout?: number,
-    ...args: unknown[]
-  ) => {
-    const timer = originalSetTimeout(callback, timeout, ...args);
-    const owner = ownership.getStore();
-    if (owner) {
-      allocated[owner]++;
-      pending.set(timer, owner);
-    }
-    return timer;
-  }) as typeof setTimeout);
-  const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout").mockImplementation(((timer) => {
-    if (timer !== undefined) {
-      pending.delete(timer);
-    }
-    originalClearTimeout(timer);
-  }) as typeof clearTimeout);
+  const pending = new Map<number, "duration" | "transcript">();
+  const observer = createHook({
+    init(id, type) {
+      const owner = ownership.getStore();
+      if (type === "Timeout" && owner) {
+        allocated[owner]++;
+        pending.set(id, owner);
+      }
+    },
+    destroy(id) {
+      pending.delete(id);
+    },
+  }).enable();
   const fixtures: Array<Awaited<ReturnType<typeof createManagerHarness>>> = [];
   const callIds: string[] = [];
   const turns: Array<ReturnType<(typeof fixtures)[number]["manager"]["continueCall"]>> = [];
@@ -39,7 +28,7 @@ it("finalizes each fixture's calls and destroys its real duration and transcript
   // it observes their cleanup, after afterEach and fixture teardown have run.
   onTestFinished(async () => {
     try {
-      await setImmediate();
+      await setImmediate(); // Node delivers timer destroy events on the next loop.
       expect(allocated).toEqual({ duration: 2, transcript: 1 });
       expect([...pending.values()], "fixture timers surviving test cleanup").toEqual([]);
       for (const [index, { manager, provider }] of fixtures.entries()) {
@@ -63,8 +52,7 @@ it("finalizes each fixture's calls and destroys its real duration and transcript
         }
         await Promise.all(turns);
       } finally {
-        setTimeoutSpy.mockRestore();
-        clearTimeoutSpy.mockRestore();
+        observer.disable();
         ownership.disable();
       }
     }

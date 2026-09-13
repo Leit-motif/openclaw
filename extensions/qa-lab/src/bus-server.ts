@@ -328,9 +328,6 @@ export async function closeQaHttpServer(server: Server, state?: QaBusState): Pro
         server.closeAllConnections?.();
       }, 250);
     });
-    // A close callback means no connection can serve another request. Enforce that contract
-    // for runtimes that retire the listener before their pooled keep-alive sockets.
-    server.closeAllConnections?.();
   } finally {
     if (forceCloseTimer) {
       clearTimeout(forceCloseTimer);
