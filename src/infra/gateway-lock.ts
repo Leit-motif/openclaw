@@ -19,7 +19,11 @@ import { resolveIdentityPathViaExistingAncestorSync } from "./boundary-path.js";
 import { sha256HexPrefixCore } from "./crypto-digest.js";
 import { hasErrnoCode } from "./errno.js";
 import { createFileLockManager } from "./file-lock-manager.js";
-import { acquireGatewayOwnerLease, type GatewayOwnerLease } from "./gateway-owner-lease.js";
+import {
+  acquireGatewayOwnerLease,
+  type GatewayOwnerLease,
+  type GatewayOwnerSupervisor,
+} from "./gateway-owner-lease.js";
 import {
   isGatewayArgv,
   isOpenClawArgv,
@@ -116,6 +120,7 @@ export type GatewayLockOptions = {
   lockDir?: string;
   role?: GatewayLockRole;
   listenerMode?: "foreground" | "supervised";
+  supervisor?: GatewayOwnerSupervisor | null;
   /** Override process command-line reader (testing seam). */
   readProcessCmdline?: (pid: number) => string[] | null;
   /** Override process start-identity reader (testing seam). */
@@ -462,6 +467,7 @@ export async function acquireGatewayLock(
         env,
         port: opts.port,
         mode: opts.listenerMode,
+        supervisor: opts.supervisor ?? null,
         owner: ownerId,
       });
       await ownerLease.ready;

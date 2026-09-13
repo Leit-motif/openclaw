@@ -86,6 +86,7 @@ describe("restart health", () => {
               startedAt: sample.ownerPid === 6464 ? 1000 : 2000,
               port: 18789,
               mode: "supervised",
+              supervisor: { kind: "schtasks", name: "OpenClaw Gateway" },
               state: "live",
               expired: false,
             },
@@ -140,6 +141,7 @@ describe("restart health", () => {
       startedAt: 1000,
       port: 18789,
       mode: "supervised",
+      supervisor: { kind: "schtasks", name: "OpenClaw Gateway" },
       state,
       expired,
     });
@@ -164,6 +166,7 @@ describe("restart health", () => {
       startedAt: 1000,
       port: 18789,
       mode: "supervised",
+      supervisor: { kind: "schtasks", name: "OpenClaw Gateway" },
       state: "live",
       expired: false,
     });

@@ -7,7 +7,7 @@ import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/st
 import { uniqueValues } from "@openclaw/normalization-core/string-normalization";
 import { resolveGatewayPort } from "../config/paths.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { signalProcessTree } from "../process/kill-tree.js";
+import { readUnixProcessGroupMembers, signalProcessTree } from "../process/kill-tree.js";
 import { getFileLockProcessStartTime, isPidDefinitelyDead } from "../shared/pid-alive.js";
 import { sleep } from "../utils/sleep.js";
 import { formatErrorMessage, hasErrnoCode } from "./errors.js";
@@ -83,28 +83,37 @@ export async function terminateStaleGatewayPids(
     options.assertCurrent?.();
     return true;
   };
-  const signal = (pid: number, value: "SIGTERM" | "SIGKILL") =>
+  const signal = (pid: number, value: "SIGTERM" | "SIGKILL", detached?: boolean) =>
     new Promise<void>((resolve) => {
-      signalProcessTree(pid, value, { onComplete: resolve });
+      signalProcessTree(pid, value, { detached, onComplete: resolve });
     });
-  const signaled: typeof targets = [];
+  const signaled: Array<{ target: (typeof targets)[number]; members: typeof targets }> = [];
   for (const target of targets) {
+    const members = readUnixProcessGroupMembers(target.pid).map((pid) =>
+      pid === target.pid
+        ? target
+        : { pid, startedAt: getFileLockProcessStartTime(pid, options.env) },
+    );
+    // A member may have exited and recycled while its start identity was read.
+    const currentMembers = new Set(readUnixProcessGroupMembers(target.pid));
     if (canSignal(target)) {
       await signal(target.pid, "SIGTERM");
-      signaled.push(target);
+      signaled.push({ target, members: members.filter(({ pid }) => currentMembers.has(pid)) });
     }
   }
   if (signaled.length > 0) {
     await sleep(300);
-    for (const target of signaled) {
-      // A new owner or recycled PID must not receive the delayed force signal.
-      if (canSignal(target)) {
-        await signal(target.pid, "SIGKILL");
+    for (const { members } of signaled) {
+      // Keep exact member identities after leader exit; never expand a recycled group.
+      for (const member of members) {
+        if (canSignal(member)) {
+          await signal(member.pid, "SIGKILL", false);
+        }
       }
     }
     await sleep(200);
   }
-  return signaled.map(({ pid }) => pid);
+  return signaled.map(({ target }) => target.pid);
 }
 
 function sleepSync(ms: number): void {

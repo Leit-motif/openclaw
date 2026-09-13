@@ -102,6 +102,7 @@ vi.mock("../shared/pid-alive.js", () => ({
 
 vi.mock("../process/kill-tree.js", () => ({
   killProcessTree: mockKillProcessTree,
+  readUnixProcessGroupMembers: (pid: number) => [pid],
   signalProcessTree: mockSignalProcessTree,
 }));
 
@@ -252,6 +253,7 @@ describe("terminateStaleGatewayPids", () => {
         startedAt: 1000,
         port: 18789,
         mode: "supervised",
+        supervisor: { kind: "systemd", name: "openclaw-gateway.service" },
         state,
         expired,
       });
@@ -291,6 +293,7 @@ describe("terminateStaleGatewayPids", () => {
             startedAt: 1000,
             port: 18789,
             mode: "supervised",
+            supervisor: { kind: "systemd", name: "openclaw-gateway.service" },
             state: "live",
             expired: false,
           });
@@ -984,6 +987,7 @@ describe.skipIf(isWindows)("restart-stale-pids", () => {
               startedAt: 1000,
               port: 18789,
               mode: "supervised",
+              supervisor: { kind: "schtasks", name: "OpenClaw Gateway" },
               state: "live",
               expired: true,
             }

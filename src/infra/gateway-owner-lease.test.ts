@@ -11,6 +11,7 @@ import {
 } from "../state/openclaw-state-db.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import * as leaseHeartbeat from "../state/openclaw-state-lease-heartbeat.js";
+import { renewOpenClawStateLeaseInTransaction } from "../state/openclaw-state-lease-store.js";
 import { acquireGatewayLock } from "./gateway-lock.js";
 import {
   acquireGatewayOwnerLease,
@@ -18,6 +19,7 @@ import {
   type GatewayOwnerLease,
 } from "./gateway-owner-lease.js";
 import { tryAcquireExclusiveSqliteCoordinator } from "./sqlite-coordinator.js";
+import { runSqliteImmediateTransactionSync } from "./sqlite-transaction.js";
 import * as lifecycleCoordinators from "./state-database-coordinator.js";
 import {
   acquireGatewayLifecycleCoordinator,
@@ -62,6 +64,7 @@ function seedOwner(
           },
           port: 19483,
           mode: "foreground",
+          supervisor: null,
         }),
         Date.now(),
         Date.now(),
@@ -72,6 +75,76 @@ function seedOwner(
 }
 
 describe("Gateway owner lease", () => {
+  it.each([
+    { label: "replacement generation", owner: "replacement", startedAt: null },
+    { label: "already recorded identity", owner: "previous-generation", startedAt: 1 },
+    { label: "expired generation", owner: "previous-generation", startedAt: null, expired: true },
+  ])("does not repair the process identity of an $label", ({ owner, startedAt, expired }) => {
+    const { env, coordinator } = fixture();
+    try {
+      seedOwner(env, { startedAt, ...(expired ? { expiresAt: Date.now() - 1 } : {}) });
+      withOpenClawStateStartupMigrationCheckpointDatabase(
+        (db) => {
+          db.prepare("UPDATE state_leases SET owner = ? WHERE scope = 'gateway-owner'").run(owner);
+          const before = readGatewayOwnerLease({ env });
+          runSqliteImmediateTransactionSync(db, () =>
+            renewOpenClawStateLeaseInTransaction(
+              db,
+              { scope: "gateway-owner", key: "global", owner: "previous-generation" },
+              300_000,
+              { pid: process.pid, host: hostname(), startedAt: 2 },
+            ),
+          );
+          expect(readGatewayOwnerLease({ env })).toEqual(before);
+        },
+        { env },
+      );
+    } finally {
+      coordinator.release();
+    }
+  });
+
+  it("retries a transient own-process identity lookup before publishing", async () => {
+    const { env, coordinator } = fixture();
+    const readStartTime = pidAlive.getFileLockProcessStartTime;
+    vi.spyOn(pidAlive, "getFileLockProcessStartTime")
+      .mockReturnValueOnce(null)
+      .mockImplementation(readStartTime);
+    let lease: GatewayOwnerLease | undefined;
+    try {
+      lease = acquireGatewayOwnerLease({ env, port: 19483, mode: "foreground", supervisor: null });
+      await lease.ready;
+      expect(readGatewayOwnerLease({ env })?.state).toBe("live");
+    } finally {
+      await lease?.release();
+      coordinator.release();
+    }
+  });
+
+  it("repairs a missing publication identity on heartbeat and becomes live", async () => {
+    const { env, coordinator } = fixture();
+    const startHeartbeat = leaseHeartbeat.startOpenClawStateLeaseHeartbeat;
+    vi.spyOn(leaseHeartbeat, "startOpenClawStateLeaseHeartbeat").mockImplementation((params) =>
+      startHeartbeat({ ...params, heartbeatMs: 100 }),
+    );
+    const lookup = vi.spyOn(pidAlive, "getFileLockProcessStartTime").mockReturnValue(null);
+    let lease: GatewayOwnerLease | undefined;
+    try {
+      lease = acquireGatewayOwnerLease({ env, port: 19483, mode: "foreground", supervisor: null });
+      expect(readGatewayOwnerLease({ env })).toMatchObject({ startedAt: null, state: "unknown" });
+      lookup.mockRestore();
+      await lease.ready;
+      await expect.poll(() => readGatewayOwnerLease({ env })?.state).toBe("live");
+      expect(readGatewayOwnerLease({ env })).toMatchObject({
+        owner: lease.owner,
+        startedAt: pidAlive.getFileLockProcessStartTime(process.pid),
+      });
+    } finally {
+      await lease?.release();
+      coordinator.release();
+    }
+  });
+
   it("records the Gateway owner before listening and releases its identity with the lock", async () => {
     const env = { OPENCLAW_STATE_DIR: tempDirs.make("openclaw-gateway-owner-publication-") };
     const lock = await acquireGatewayLock({
@@ -88,6 +161,7 @@ describe("Gateway owner lease", () => {
         pid: process.pid,
         port: 18789,
         mode: "foreground",
+        supervisor: null,
         state: "live",
         expired: false,
       });
@@ -149,6 +223,7 @@ describe("Gateway owner lease", () => {
         env,
         port: 19483,
         mode: "foreground",
+        supervisor: null,
         owner: "gateway-generation",
       });
       await lease.ready;
@@ -160,6 +235,7 @@ describe("Gateway owner lease", () => {
         startedAt: pidAlive.getFileLockProcessStartTime(process.pid),
         port: 19483,
         mode: "foreground",
+        supervisor: null,
         state: "live",
         expired: false,
       });
@@ -200,7 +276,12 @@ describe("Gateway owner lease", () => {
       try {
         seedOwner(env, previous);
         expect(readGatewayOwnerLease({ env })).toMatchObject({ state: "dead", expired: false });
-        lease = acquireGatewayOwnerLease({ env, port: 19483, mode: "supervised" });
+        lease = acquireGatewayOwnerLease({
+          env,
+          port: 19483,
+          mode: "supervised",
+          supervisor: { kind: "schtasks", name: "OpenClaw Gateway" },
+        });
         await lease.ready;
         expect(readGatewayOwnerLease({ env })).toMatchObject({
           owner: lease.owner,
@@ -238,9 +319,9 @@ describe("Gateway owner lease", () => {
     try {
       seedOwner(env, previous);
       expect(readGatewayOwnerLease({ env })).toMatchObject({ state: "unknown", expired: false });
-      expect(() => acquireGatewayOwnerLease({ env, port: 19483, mode: "foreground" })).toThrow(
-        "Another Gateway owner lease is still active",
-      );
+      expect(() =>
+        acquireGatewayOwnerLease({ env, port: 19483, mode: "foreground", supervisor: null }),
+      ).toThrow("Another Gateway owner lease is still active");
       expect(readGatewayOwnerLease({ env })?.owner).toBe("previous-generation");
     } finally {
       coordinator.release();
@@ -262,7 +343,7 @@ describe("Gateway owner lease", () => {
     const { env, coordinator } = fixture();
     let lease: GatewayOwnerLease | undefined;
     try {
-      lease = acquireGatewayOwnerLease({ env, port: 19483, mode: "foreground" });
+      lease = acquireGatewayOwnerLease({ env, port: 19483, mode: "foreground", supervisor: null });
       await lease.ready;
       withOpenClawStateStartupMigrationCheckpointDatabase(
         (db) => {

@@ -15,6 +15,7 @@ const owner = vi.hoisted(() => ({
   startedAt: 100,
   port: 18789,
   mode: "foreground" as const,
+  supervisor: null,
   state: "live" as const,
   expired: false,
 }));

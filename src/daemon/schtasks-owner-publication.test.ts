@@ -5,13 +5,13 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { GatewayOwnerLeaseIdentity } from "../infra/gateway-owner-lease.js";
 import {
   acquireGatewayLifecycleCoordinator,
-  StateDatabaseCoordinatorContentionError,
   withStateDatabaseCoordinatorRuntimeDirectory,
 } from "../infra/state-database-coordinator.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
 import { resolveTaskScriptPath } from "./schtasks-layout.js";
 import "./test-helpers/schtasks-base-mocks.js";
 import {
+  inspectPortUsageMock,
   killProcessTreeMock,
   resetSchtasksBaseMocks,
   withWindowsEnv,
@@ -61,6 +61,7 @@ const GATEWAY_OWNER: GatewayOwnerLeaseIdentity = {
   startedAt: 100,
   port: 18789,
   mode: "foreground",
+  supervisor: null,
   state: "live",
   expired: false,
 };
@@ -111,97 +112,120 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-it("preserves a foreground coordinator owner before its lease is published", async () => {
-  await withPreparedGatewayTask(async ({ env }) => {
-    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-    const foreground = acquireGatewayLifecycleCoordinator({
-      databasePath: resolveOpenClawStateSqlitePath(env),
-    });
-    try {
-      mockWindowsTaskkillSuccess();
-      const output = JSON.stringify([
-        { ProcessId: 4242, CommandLine: INSTALLED_GATEWAY_COMMAND_LINE },
-      ]);
-      spawnSync.mockReturnValueOnce({
-        pid: 0,
-        output: [null, output, ""],
-        stdout: output,
-        stderr: "",
-        status: 0,
-        signal: null,
+it.each(["snapshot", "port-only"])(
+  "preserves an unattributed foreground coordinator owner before publication (%s)",
+  async (discovery) => {
+    await withPreparedGatewayTask(async ({ env }) => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+      const foreground = acquireGatewayLifecycleCoordinator({
+        databasePath: resolveOpenClawStateSqlitePath(env),
       });
-      expect(readGatewayOwnerLease({ env })).toBeUndefined();
-
-      await expect(terminateScheduledTaskGatewayListeners(env)).rejects.toThrow(
-        "Gateway lifecycle ownership is held without a published identity",
-      );
-
-      expect(taskkillPids()).toEqual([]);
-      expect(killProcessTreeMock).not.toHaveBeenCalled();
-      expect(foreground.closed).toBe(false);
-      readGatewayOwnerLease.mockReturnValue({ ...GATEWAY_OWNER, mode: "foreground" });
-      await expect(terminateScheduledTaskGatewayListeners(env)).resolves.toEqual([]);
-    } finally {
-      foreground.release();
-    }
-  });
-});
-
-it("excludes new Gateway ownership until older-release cleanup and escalation settle", async () => {
-  await withPreparedGatewayTask(async ({ env }) => {
-    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-    const databasePath = resolveOpenClawStateSqlitePath(env);
-    let forced = false;
-    let admissionChecks = 0;
-    const assertExcluded = () => {
-      let contender: ReturnType<typeof acquireGatewayLifecycleCoordinator> | undefined;
-      let failure: unknown;
       try {
-        contender = acquireGatewayLifecycleCoordinator({ databasePath });
-      } catch (error) {
-        failure = error;
+        mockWindowsTaskkillSuccess();
+        const foregroundCommand = INSTALLED_GATEWAY_COMMAND_LINE.replace(
+          " gateway ",
+          " gateway run ",
+        );
+        const output =
+          discovery === "snapshot"
+            ? JSON.stringify([{ ProcessId: 4242, CommandLine: foregroundCommand }])
+            : "";
+        inspectPortUsageMock.mockResolvedValue({
+          port: 18789,
+          status: "busy",
+          listeners: [{ pid: 4242, command: "node.exe", commandLine: foregroundCommand }],
+          hints: [],
+        });
+        spawnSync.mockReturnValueOnce({
+          pid: 0,
+          output: [null, output, ""],
+          stdout: output,
+          stderr: "",
+          status: discovery === "snapshot" ? 0 : 1,
+          signal: null,
+        });
+        expect(readGatewayOwnerLease({ env })).toBeUndefined();
+
+        await expect(terminateScheduledTaskGatewayListeners(env)).rejects.toThrow(
+          "Gateway lifecycle ownership is held without a published identity",
+        );
+
+        expect(taskkillPids()).toEqual([]);
+        expect(killProcessTreeMock).not.toHaveBeenCalled();
+        expect(foreground.closed).toBe(false);
+        readGatewayOwnerLease.mockReturnValue({ ...GATEWAY_OWNER, mode: "foreground" });
+        await expect(terminateScheduledTaskGatewayListeners(env)).resolves.toEqual([]);
       } finally {
-        contender?.release();
+        foreground.release();
       }
-      admissionChecks += 1;
-      expect(failure).toBeInstanceOf(StateDatabaseCoordinatorContentionError);
-    };
-    spawnSync.mockImplementation((command, args) => {
-      if (command.toLowerCase().endsWith("taskkill.exe")) {
-        assertExcluded();
-        forced = args?.includes("/F") ?? false;
+    });
+  },
+);
+
+it.each(["snapshot", "per-pid"])(
+  "terminates an installed-argv-attributed older-release coordinator holder without a row (%s)",
+  async (discovery) => {
+    await withPreparedGatewayTask(async ({ env }) => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+      const databasePath = resolveOpenClawStateSqlitePath(env);
+      const legacy = acquireGatewayLifecycleCoordinator({ databasePath });
+      let forced = false;
+      let firstSnapshot = true;
+      inspectPortUsageMock.mockResolvedValue({
+        port: 18789,
+        status: "busy",
+        listeners: [
+          { pid: 4242, command: "node.exe", commandLine: INSTALLED_GATEWAY_COMMAND_LINE },
+        ],
+        hints: [],
+      });
+      spawnSync.mockImplementation((command, args) => {
+        if (command.toLowerCase().endsWith("taskkill.exe")) {
+          forced = args?.includes("/F") ?? false;
+          if (forced) {
+            legacy.release();
+          }
+          return {
+            pid: 0,
+            output: [null, "", ""],
+            stdout: "",
+            stderr: "",
+            status: 0,
+            signal: null,
+          };
+        }
+        if (firstSnapshot && discovery === "per-pid") {
+          firstSnapshot = false;
+          return {
+            pid: 0,
+            output: [null, "", ""],
+            stdout: "",
+            stderr: "",
+            status: 1,
+            signal: null,
+          };
+        }
+        const output = JSON.stringify([
+          ...(!forced ? [{ ProcessId: 4242, CommandLine: INSTALLED_GATEWAY_COMMAND_LINE }] : []),
+          { ProcessId: 9999, CommandLine: "powershell.exe" },
+        ]);
         return {
           pid: 0,
-          output: [null, "", ""],
-          stdout: "",
+          output: [null, output, ""],
+          stdout: output,
           stderr: "",
           status: 0,
           signal: null,
         };
+      });
+      try {
+        await expect(terminateScheduledTaskGatewayListeners(env)).resolves.toEqual([4242]);
+        expect(taskkillPids()).toEqual([4242, 4242]);
+        const successor = acquireGatewayLifecycleCoordinator({ databasePath });
+        successor.release();
+      } finally {
+        legacy.release();
       }
-      const output = JSON.stringify([
-        ...(!forced ? [{ ProcessId: 4242, CommandLine: INSTALLED_GATEWAY_COMMAND_LINE }] : []),
-        { ProcessId: 9999, CommandLine: "powershell.exe" },
-      ]);
-      return {
-        pid: 0,
-        output: [null, output, ""],
-        stdout: output,
-        stderr: "",
-        status: 0,
-        signal: null,
-      };
     });
-    sleepMock.mockImplementation(async (ms) => {
-      assertExcluded();
-      timeState.now += ms;
-    });
-
-    await expect(terminateScheduledTaskGatewayListeners(env)).resolves.toEqual([4242]);
-
-    expect(taskkillPids()).toEqual([4242, 4242]);
-    expect(admissionChecks).toBeGreaterThan(2);
-    const successor = acquireGatewayLifecycleCoordinator({ databasePath });
-    successor.release();
-  });
-});
+  },
+);

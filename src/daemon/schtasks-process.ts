@@ -17,7 +17,7 @@ import { sleep } from "../utils.js";
 import { parseCmdScriptCommandLine } from "./cmd-argv.js";
 import { NODE_SERVICE_KIND } from "./constants.js";
 import { resolveGatewayServiceProbeHosts } from "./gateway-service-probe-hosts.js";
-import { readScheduledTaskCommand } from "./schtasks-layout.js";
+import { readScheduledTaskCommand, resolveTaskName } from "./schtasks-layout.js";
 import { mergeGatewayServiceEnv } from "./service-env-merge.js";
 import { resolveServiceManagerEnv } from "./service-process-env.js";
 import type { GatewayServiceRuntime } from "./service-runtime.js";
@@ -182,14 +182,37 @@ async function resolveScheduledTaskGatewayOwnership(
   }
   const ownerEnv = mergeGatewayServiceEnv(env, command);
   const owner = readGatewayOwnerLease({ env: ownerEnv });
+  const taskName = resolveTaskName(env);
+  const isTaskSupervisor = (supervisor: NonNullable<typeof owner>["supervisor"]) =>
+    supervisor?.kind === "schtasks" && supervisor.name?.toLowerCase() === taskName.toLowerCase();
   const pids = owner
-    ? owner.port === port && owner.state === "live" && owner.mode === "supervised"
+    ? owner.port === port && owner.state === "live" && isTaskSupervisor(owner.supervisor)
       ? [owner.pid]
       : []
     : await resolveLegacyScheduledTaskOwnedGatewayPids(env, context, command);
   return {
     pids,
     acquireTerminationExclusion() {
+      if (
+        owner?.port === port &&
+        owner.state !== "dead" &&
+        owner.supervisor &&
+        !isTaskSupervisor(owner.supervisor)
+      ) {
+        const supervisor = owner.supervisor;
+        const label =
+          supervisor.kind === "external"
+            ? "external supervisor"
+            : `${supervisor.kind} ${supervisor.name ?? "(name unavailable)"}`;
+        throw new Error(
+          `Gateway pid ${owner.pid} on port ${port} belongs to ${label}, not Scheduled Task ${taskName}. Run that supervisor's stop or restart command; the Gateway was left running.`,
+        );
+      }
+      // Both legacy discovery paths require exact installed argv. Older releases
+      // hold the coordinator without publishing a row and remain terminable.
+      if (pids.length > 0) {
+        return null;
+      }
       if (owner) {
         return null;
       }
@@ -217,7 +240,7 @@ async function resolveScheduledTaskGatewayOwnership(
         current.host !== owner.host ||
         current.startedAt !== owner.startedAt ||
         current.state !== "live" ||
-        current.mode !== "supervised"
+        !isTaskSupervisor(current.supervisor)
       ) {
         throw new Error(`Gateway owner changed before terminating process ${pid}`);
       }
@@ -225,7 +248,7 @@ async function resolveScheduledTaskGatewayOwnership(
   };
 }
 
-// Installed-command matching supplies candidates; physical exclusion authorizes legacy cleanup.
+// Full snapshots and per-PID fallback lookups require the same installed-argv attribution.
 async function resolveLegacyScheduledTaskOwnedGatewayPids(
   env: GatewayServiceEnv,
   context?: { port: number | null; probeHosts?: readonly string[] },
@@ -401,7 +424,7 @@ export async function terminateScheduledTaskGatewayListeners(
     return [];
   }
   const ownership = await resolveScheduledTaskGatewayOwnership(env, resolvedContext);
-  if (!ownership || ownership.pids.length === 0) {
+  if (!ownership) {
     return [];
   }
   const exclusion = ownership.acquireTerminationExclusion();

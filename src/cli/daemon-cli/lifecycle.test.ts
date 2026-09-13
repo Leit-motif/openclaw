@@ -95,8 +95,7 @@ vi.mock("../../config/io.js", () => ({ createConfigIO }));
 
 vi.mock("../../infra/gateway-processes.js", () => ({
   findVerifiedGatewayListenerPidsOnPortSync,
-  signalVerifiedGatewayPidSync: (pid: number, signal: "SIGTERM" | "SIGUSR1") =>
-    signalVerifiedGatewayPidSync(pid, signal),
+  signalVerifiedGatewayPidSync,
   formatGatewayPidList: (pids: number[]) => formatGatewayPidList(pids),
 }));
 
@@ -558,8 +557,8 @@ describe("runDaemonRestart health checks", () => {
         runtime: { status: "stopped" },
         portUsage: { port: 18789, status: "busy", listeners: [], hints: [] },
       };
-      const healthy: RestartHealthSnapshot = createHealthyRestartSnapshot();
-      waitForGatewayHealthyRestart.mockResolvedValueOnce(unhealthy).mockResolvedValueOnce(healthy);
+      waitForGatewayHealthyRestart.mockResolvedValueOnce(unhealthy);
+      waitForGatewayHealthyRestart.mockResolvedValueOnce(createHealthyRestartSnapshot());
       terminateStaleGatewayPids.mockResolvedValue(terminated ? [1993] : []);
       if (replaced) {
         readGatewayOwnerLease.mockReturnValue({
@@ -569,6 +568,7 @@ describe("runDaemonRestart health checks", () => {
           startedAt: 2000,
           port: 18789,
           mode: "supervised",
+          supervisor: { kind: "schtasks", name: "OpenClaw Gateway" },
           state: "live",
           expired: false,
         });

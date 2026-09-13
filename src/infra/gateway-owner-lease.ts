@@ -15,6 +15,7 @@ import {
   releaseOpenClawStateLeaseInTransaction,
 } from "../state/openclaw-state-lease-store.js";
 import { assertOpenClawStateWriteAllowed } from "../state/openclaw-state-ownership.js";
+import { resolveDiagnosticProcessEnv } from "./process-env.js";
 import { runSqliteImmediateTransactionSync } from "./sqlite-transaction.js";
 import { STARTUP_MIGRATION_LEASE_TTL_MS } from "./startup-migration-checkpoint.js";
 import {
@@ -26,10 +27,16 @@ import {
 const gatewayOwnerKey = { scope: "gateway-owner", key: "global" };
 const log = createSubsystemLogger("gateway");
 
+export type GatewayOwnerSupervisor = {
+  kind: "launchd" | "systemd" | "schtasks" | "external";
+  name: string | null;
+};
+
 export type GatewayOwnerLeaseIdentity = StateLeaseProcessOwner & {
   owner: string;
   port: number;
   mode: "foreground" | "supervised";
+  supervisor: GatewayOwnerSupervisor | null;
   state: "live" | "dead" | "unknown";
   expired: boolean;
 };
@@ -39,6 +46,23 @@ export type GatewayOwnerLease = {
   ready: Promise<void>;
   release: () => Promise<void>;
 };
+
+function parseSupervisor(value: unknown): GatewayOwnerSupervisor | null {
+  if (value === null) {
+    return null;
+  }
+  if (
+    !isRecord(value) ||
+    (value.kind !== "launchd" &&
+      value.kind !== "systemd" &&
+      value.kind !== "schtasks" &&
+      value.kind !== "external") ||
+    (value.name !== null && (typeof value.name !== "string" || !value.name.trim()))
+  ) {
+    throw new Error("Gateway owner lease supervisor could not be verified");
+  }
+  return { kind: value.kind, name: value.name };
+}
 
 export function readGatewayOwnerLease(
   params: { env?: NodeJS.ProcessEnv; port?: number } = {},
@@ -73,11 +97,16 @@ export function readGatewayOwnerLease(
       if (params.port !== undefined && payload.port !== params.port) {
         return undefined;
       }
+      const supervisor = parseSupervisor(payload.supervisor);
+      if ((payload.mode === "foreground") !== (supervisor === null)) {
+        throw new Error("Gateway owner lease supervisor does not match its listener mode");
+      }
       return {
         ...processOwner,
         owner: row.owner,
         port: payload.port,
         mode: payload.mode,
+        supervisor,
         // Expiry cannot revoke the separate physical Gateway coordinator.
         state: readStateLeaseProcessOwnerStatus(processOwner),
         expired: row.expiresAt === null || row.expiresAt <= Date.now(),
@@ -92,19 +121,25 @@ export function acquireGatewayOwnerLease(params: {
   env?: NodeJS.ProcessEnv;
   port: number;
   mode: GatewayOwnerLeaseIdentity["mode"];
+  supervisor: GatewayOwnerSupervisor | null;
   owner?: string;
 }): GatewayOwnerLease {
   const env = params.env ?? process.env;
   const databasePath = resolveOpenClawStateSqlitePath(env);
   const identity = { ...gatewayOwnerKey, owner: params.owner ?? randomUUID() };
+  const processOwner = {
+    pid: process.pid,
+    host: hostname(),
+    // Retry the native self lookup with its full Windows budget before publication.
+    startedAt:
+      getFileLockProcessStartTime(process.pid, env) ??
+      getFileLockProcessStartTime(process.pid, env),
+  };
   const payloadJson = JSON.stringify({
-    owner: {
-      pid: process.pid,
-      host: hostname(),
-      startedAt: getFileLockProcessStartTime(process.pid, env),
-    },
+    owner: processOwner,
     port: params.port,
     mode: params.mode,
+    supervisor: params.supervisor,
   });
   const expiresAt = withOpenClawStateStartupMigrationCheckpointDatabase(
     (db) =>
@@ -146,6 +181,9 @@ export function acquireGatewayOwnerLease(params: {
         leaseMs: STARTUP_MIGRATION_LEASE_TTL_MS,
         expiresAt,
         heartbeatMs: 30_000,
+        ...(processOwner.startedAt === null
+          ? { processOwner: { identity: processOwner, env: resolveDiagnosticProcessEnv(env) } }
+          : {}),
         onLost: () => {
           if (!warned) {
             warned = true;

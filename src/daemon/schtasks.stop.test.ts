@@ -93,6 +93,7 @@ const GATEWAY_OWNER: GatewayOwnerLeaseIdentity = {
   startedAt: 100,
   port: GATEWAY_PORT,
   mode: "supervised",
+  supervisor: { kind: "schtasks", name: "OpenClaw Gateway" },
   state: "live",
   expired: false,
 };
@@ -616,6 +617,25 @@ describe("Scheduled Task stop/restart cleanup", () => {
   );
 
   it.each([
+    { kind: "external", name: null },
+    { kind: "schtasks", name: "Another Gateway Task" },
+  ] as const)("preserves a live owner supervised by $kind $name", async (supervisor) => {
+    await withPreparedGatewayTask(async ({ env }) => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+      readGatewayOwnerLease.mockReturnValue({ ...GATEWAY_OWNER, supervisor });
+      mockWindowsTaskkillSuccess();
+
+      await expect(resolveScheduledTaskOwnedGatewayPids(env)).resolves.toEqual([]);
+      await expect(terminateScheduledTaskGatewayListeners(env)).rejects.toThrow(
+        supervisor.name ?? "external supervisor",
+      );
+
+      expect(taskkillPids()).toEqual([]);
+      expect(killProcessTreeMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([
     { mode: "foreground", state: "live" },
     { mode: "supervised", state: "dead" },
     { mode: "supervised", state: "unknown" },
@@ -624,7 +644,12 @@ describe("Scheduled Task stop/restart cleanup", () => {
     async ({ mode, state }) => {
       await withPreparedGatewayTask(async ({ env }) => {
         vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-        readGatewayOwnerLease.mockReturnValue({ ...GATEWAY_OWNER, mode, state });
+        readGatewayOwnerLease.mockReturnValue({
+          ...GATEWAY_OWNER,
+          mode,
+          state,
+          supervisor: mode === "foreground" ? null : GATEWAY_OWNER.supervisor,
+        });
         const output = JSON.stringify([
           { ProcessId: 4242, CommandLine: INSTALLED_GATEWAY_COMMAND_LINE },
         ]);
@@ -707,7 +732,11 @@ describe("Scheduled Task stop/restart cleanup", () => {
       vi.spyOn(process, "platform", "get").mockReturnValue("win32");
       mockWindowsTaskkillSuccess();
       inspectPortUsageMock.mockImplementation(async () => {
-        readGatewayOwnerLease.mockReturnValue({ ...GATEWAY_OWNER, mode: "foreground" });
+        readGatewayOwnerLease.mockReturnValue({
+          ...GATEWAY_OWNER,
+          mode: "foreground",
+          supervisor: null,
+        });
         return busyPortUsage(4242, { commandLine: INSTALLED_GATEWAY_COMMAND_LINE });
       });
 

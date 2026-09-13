@@ -191,14 +191,16 @@ export async function runGatewayLoop(params: {
   // here pulls the lifecycle re-export graph into memory, immune to later disk
   // rotation.
   const eagerLifecycleRuntime = await loadGatewayLifecycleRuntimeModule();
-  const supervisorMode = eagerLifecycleRuntime.detectGatewayRespawnSupervisor(
+  const supervisor = eagerLifecycleRuntime.detectGatewayRespawnSupervisorIdentity(
     process.env,
     process.platform,
     { includeLinuxOpenClawGatewayServiceMarker: true },
   );
+  const supervisorMode = supervisor?.kind ?? null;
   let lock = await acquireGatewayLock({
     port: params.lockPort,
     listenerMode: supervisorMode ? "supervised" : "foreground",
+    supervisor,
     ...(params.lifecycleLockDeadlineMs !== undefined
       ? { lifecycleDeadlineMs: params.lifecycleLockDeadlineMs }
       : {}),
@@ -435,6 +437,7 @@ export async function runGatewayLoop(params: {
         lock = await acquireGatewayLock({
           port: params.lockPort,
           listenerMode: supervisorMode ? "supervised" : "foreground",
+          supervisor,
         });
       } catch (err) {
         if (forcedExitStarted) {
