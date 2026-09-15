@@ -151,6 +151,10 @@ systems, projects, or any other entity type:
 - `personCard`: optional person-specific routing card (handles, socials, emails, timezone, lane, ask-for, avoid-asking-for, confidence, privacy tier)
 - `relationships`: typed edges to related pages (target, kind, weight, confidence, evidence kind, privacy tier, note)
 
+Through `wiki_apply` (`create_entity`), omitted entity fields preserve the
+stored values on refresh, while a supplied `aliases` or `relationships` list
+replaces the stored list — an explicit empty array clears it.
+
 For a people wiki, start with `reports/person-agent-directory.md`, then open
 the person page with `wiki_get` before using contact details or inferred
 facts.

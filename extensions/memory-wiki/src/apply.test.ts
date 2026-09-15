@@ -367,6 +367,42 @@ keep this note
     expect(parsed.body).toContain("keep this note");
   });
 
+  it("clears entity aliases and relationships when refreshed with explicit empty lists", async () => {
+    const { rootDir, config } = await createVault({ prefix: "memory-wiki-apply-entity-clear-" });
+
+    await applyMemoryWikiMutation({
+      config,
+      mutation: {
+        op: "create_entity",
+        title: "Alpha",
+        body: "Alpha entity body.",
+        sourceIds: ["source.alpha"],
+        entityType: "system",
+        aliases: ["alpha-svc"],
+        relationships: [{ targetId: "entity.beta", kind: "depends-on", confidence: 0.6 }],
+      },
+    });
+
+    await applyMemoryWikiMutation({
+      config,
+      mutation: {
+        op: "create_entity",
+        title: "Alpha",
+        body: "Cleared summary.",
+        sourceIds: ["source.alpha"],
+        aliases: [],
+        relationships: [],
+      },
+    });
+
+    const parsed = parseWikiMarkdown(
+      await fs.readFile(path.join(rootDir, "entities", "alpha.md"), "utf8"),
+    );
+    expect(parsed.frontmatter.aliases).toEqual([]);
+    expect(parsed.frontmatter.relationships).toEqual([]);
+    expect(parsed.frontmatter.entityType).toBe("system");
+  });
+
   it("applies a write when an unrelated vault page has malformed frontmatter (#96125)", async () => {
     const { rootDir, config } = await createVault({
       prefix: "memory-wiki-apply-unrelated-invalid-",

@@ -199,6 +199,37 @@ describe("memory-wiki tools", () => {
     expect(lint.issues.filter((issue) => issue.path === `${dir}/gamma-page.md`)).toEqual([]);
   });
 
+  it("clears stored entity lists through wiki_apply with explicit empty arrays", async () => {
+    const { rootDir, config } = await harness.createVault({ initialize: true });
+    const tool = createWikiApplyTool(config);
+
+    await tool.execute("create-entity", {
+      op: "create_entity",
+      title: "Delta Entity",
+      body: "Delta entity body.",
+      sourceIds: ["source.delta"],
+      aliases: ["delta-old"],
+      relationships: [{ targetId: "entity.target", kind: "relates-to", confidence: 0.5 }],
+    });
+    await tool.execute("clear-entity", {
+      op: "create_entity",
+      title: "Delta Entity",
+      body: "Delta entity body refreshed.",
+      sourceIds: ["source.delta"],
+      aliases: [],
+      relationships: [],
+    });
+
+    const page = parseWikiMarkdown(
+      await fs.readFile(path.join(rootDir, "entities", "delta-entity.md"), "utf8"),
+    );
+    expect(page.frontmatter.aliases).toEqual([]);
+    expect(page.frontmatter.relationships).toEqual([]);
+
+    const lint = await lintMemoryWikiVault(config);
+    expect(lint.issues.filter((issue) => issue.path === "entities/delta-entity.md")).toEqual([]);
+  });
+
   it.each([-0.5, 999])(
     "keeps wiki pages unchanged for out-of-range claim confidence %s",
     async (confidence) => {

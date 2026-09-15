@@ -335,10 +335,10 @@ function buildEntityFrontmatter(mutation: CreatePageMemoryWikiMutation): Record<
   return {
     ...(mutation.entityType ? { entityType: mutation.entityType } : {}),
     ...(mutation.canonicalId ? { canonicalId: mutation.canonicalId } : {}),
-    ...(aliases && aliases.length > 0 ? { aliases } : {}),
-    ...(mutation.relationships && mutation.relationships.length > 0
-      ? { relationships: mutation.relationships }
-      : {}),
+    // Omitted entity lists preserve stored frontmatter; supplied lists replace
+    // them, so an explicit empty array clears stale aliases/relationships.
+    ...(mutation.aliases ? { aliases: aliases ?? [] } : {}),
+    ...(mutation.relationships ? { relationships: mutation.relationships } : {}),
   };
 }
 
