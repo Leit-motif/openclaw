@@ -10,6 +10,7 @@ import { isAutomationsToolName } from "../agents/tools/automations-tool-name.js"
 import {
   createAdmittedGatewayToolCallerIdentity,
   withGatewayToolCallerIdentity,
+  withoutGatewayToolCallerIdentity,
 } from "../agents/tools/gateway-caller-context.js";
 import { getRuntimeConfig } from "../config/io.js";
 import { resolveSessionEntryAccessTarget } from "../config/sessions/session-accessor.js";
@@ -20,6 +21,10 @@ import {
   sendHttpRequestRejection,
 } from "../infra/http-request-lifecycle.js";
 import { logDebug, logWarn } from "../logger.js";
+import {
+  getPluginRuntimeGatewayRequestScope,
+  withPluginRuntimeGatewayContextResolver,
+} from "../plugins/runtime/gateway-request-scope.js";
 import { runOutsidePluginRuntimeGenerationScope } from "../plugins/runtime/generation-scope.js";
 import { runOutsideGatewayRootWorkAdmission } from "../process/gateway-work-admission.js";
 import {
@@ -560,9 +565,21 @@ export async function ensureMcpLoopbackServer(port = 0): Promise<void> {
   if (!activeMcpLoopbackServerPromise) {
     // The listener owns its context until Gateway close; callers own only requests.
     // The first turn's work and plugin generation can retire before later requests.
+    // Its handlers also must not inherit the starting request's caller: a write-only
+    // restart-recovery run would otherwise cap every later turn's bridge calls.
     const work = new AsyncWorkScope();
-    activeMcpLoopbackServerPromise = runOutsidePluginRuntimeGenerationScope(() =>
-      runOutsideGatewayRootWorkAdmission(() => work.run(() => startMcpLoopbackServer(port, work))),
+    const resolveGatewayContext = getPluginRuntimeGatewayRequestScope()?.resolveGatewayContext;
+    activeMcpLoopbackServerPromise = withoutGatewayToolCallerIdentity(() =>
+      withPluginRuntimeGatewayContextResolver(
+        resolveGatewayContext,
+        () =>
+          runOutsidePluginRuntimeGenerationScope(() =>
+            runOutsideGatewayRootWorkAdmission(() =>
+              work.run(() => startMcpLoopbackServer(port, work)),
+            ),
+          ),
+        { inheritRequestScope: false },
+      ),
     )
       .then((close) => {
         closeActiveMcpLoopbackServer = close;

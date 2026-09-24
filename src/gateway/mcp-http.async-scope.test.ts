@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import {
+  getGatewayToolCallerIdentity,
+  withGatewayToolCallerIdentity,
+} from "../agents/tools/gateway-caller-context.js";
+import {
+  getPluginRuntimeGatewayRequestScope,
+  withPluginRuntimeGatewayRequestScope,
+} from "../plugins/runtime/gateway-request-scope.js";
+import {
   isGatewaySubordinateWorkAdmissionClosed,
   tryBeginGatewayRootWorkAdmission,
 } from "../process/gateway-work-admission.js";
@@ -117,6 +125,42 @@ describe("MCP HTTP work ownership", () => {
       expect(constructionScopes[0]?.aborted).toBe(true);
     },
   );
+
+  it("does not retain the Gateway caller of the request that started it", async () => {
+    const observed: unknown[] = [];
+    execute.mockImplementation(() => {
+      const scope = getPluginRuntimeGatewayRequestScope();
+      observed.push({
+        client: scope?.client,
+        resolveGatewayContext: scope?.resolveGatewayContext,
+        callerAgentId: getGatewayToolCallerIdentity()?.agentId,
+      });
+      return completed;
+    });
+    const resolveGatewayContext = vi.fn();
+    // A restart-recovery continuation is a write-only system caller; a later owner
+    // turn must not be capped by it just because it happened to start the listener.
+    const starter = {
+      connect: { role: "operator", scopes: ["operator.write"] },
+    } as unknown as NonNullable<
+      Parameters<typeof withPluginRuntimeGatewayRequestScope>[0]["client"]
+    >;
+    await withGatewayToolCallerIdentity(
+      { agentId: "starter", sessionKey: "agent:starter:recovery" } as NonNullable<
+        Parameters<typeof withGatewayToolCallerIdentity>[0]
+      >,
+      () =>
+        withPluginRuntimeGatewayRequestScope(
+          { client: starter, resolveGatewayContext, isWebchatConnect: () => false },
+          () => ensureMcpLoopbackServer(),
+        ),
+    );
+
+    expect(await callTool()).toMatchObject({ result: { ...completed, isError: false } });
+    expect(observed).toEqual([
+      { client: undefined, resolveGatewayContext, callerAgentId: undefined },
+    ]);
+  });
 
   it("joins accepted tool cleanup without closing a replacement listener", async () => {
     const releaseCleanup = createDeferred();
