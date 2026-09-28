@@ -54,4 +54,10 @@ describe("cron protocol conformance", () => {
       }),
     ).toBe(false);
   });
+
+  it("accepts the scheduler-persisted schedule error counter in reported state", () => {
+    expect(Value.Check(CronJobStateSchema, { scheduleErrorCount: 0 })).toBe(true);
+    expect(Value.Check(CronJobStateSchema, { scheduleErrorCount: 3 })).toBe(true);
+    expect(Value.Check(CronJobStateSchema, { scheduleErrorCount: -1 })).toBe(false);
+  });
 });

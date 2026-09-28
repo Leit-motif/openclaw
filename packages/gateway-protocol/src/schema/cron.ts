@@ -468,6 +468,9 @@ export const CronJobStateSchema = closedObject({
   // Report-only scheduler ownership fact; callers cannot patch this field.
   autoDisabled: Type.Optional(CronAutoDisabledSchema),
   consecutiveSkipped: Type.Optional(Type.Integer({ minimum: 0 })),
+  // Report-only schedule-computation error counter behind schedule-errors
+  // auto-disable. The scheduler persists 0 after recovery; not patchable.
+  scheduleErrorCount: Type.Optional(Type.Integer({ minimum: 0 })),
   lastDelivered: Type.Optional(Type.Boolean()),
   lastDeliveryStatus: Type.Optional(CronDeliveryStatusSchema),
   lastDeliveryError: Type.Optional(Type.String()),
