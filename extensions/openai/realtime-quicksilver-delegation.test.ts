@@ -462,7 +462,7 @@ describe("GPT-Live sideband protocol", () => {
         content: [
           {
             type: "input_text",
-            text: expect.stringContaining('Status: "I’ll check that request."'),
+            text: expect.stringContaining("at most one short natural backchannel"),
           },
         ],
       });

@@ -279,6 +279,20 @@ export function buildRealtimeVoiceAgentControlSpeechMessage(text: string): strin
   ].join("\n");
 }
 
+/** Shared waiting-filler rule, so every realtime voice surface backchannels the same way. */
+export const REALTIME_VOICE_WAITING_BACKCHANNEL_INSTRUCTION =
+  'While waiting for OpenClaw data or tool results, use at most one short natural backchannel such as "yeah", "mm-hmm", "got it", or "one sec"; vary it and do not treat it as the final answer.';
+
+/** Build the launch receipt for a host-classified handoff: a varied short backchannel, not a fixed phrase. */
+export function buildRealtimeVoiceAgentHandoffReceiptMessage(): string {
+  return [
+    "Internal OpenClaw voice status: the user's request was handed to OpenClaw and the answer is not ready yet.",
+    "Do not delegate this message or call any tools.",
+    REALTIME_VOICE_WAITING_BACKCHANNEL_INSTRUCTION,
+    "Keep it to a few words, and do not answer, restate, or describe the request.",
+  ].join("\n");
+}
+
 /** Provider result payload used when the control tool cancels active work. */
 export function buildRealtimeVoiceAgentCancelProviderResult(
   message = "Cancelled the active OpenClaw run.",

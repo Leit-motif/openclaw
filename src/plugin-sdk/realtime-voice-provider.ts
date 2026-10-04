@@ -48,7 +48,10 @@ export {
 export { sleepWithAbort } from "../infra/backoff.js";
 
 export { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
-export { buildRealtimeVoiceAgentControlSpeechMessage } from "../talk/agent-run-control-shared.js";
+export {
+  buildRealtimeVoiceAgentControlSpeechMessage,
+  buildRealtimeVoiceAgentHandoffReceiptMessage,
+} from "../talk/agent-run-control-shared.js";
 
 export {
   createRealtimeVoiceAudioPortSender,

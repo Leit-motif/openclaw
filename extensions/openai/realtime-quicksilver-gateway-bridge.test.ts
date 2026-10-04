@@ -473,7 +473,8 @@ describe("GPT-Live gateway relay bridge", () => {
     expect(
       parseSent(connectedSocket).filter((event) => event.type === "session.context.append"),
     ).toHaveLength(2);
-    expect(connectedSocket.sent[1]).toContain("I’ll check that request.");
+    expect(connectedSocket.sent[1]).toContain("at most one short natural backchannel");
+    expect(connectedSocket.sent[1]).not.toContain("I’ll check that request.");
 
     await bridge.close();
     expect(closePeer).toHaveBeenCalledOnce();

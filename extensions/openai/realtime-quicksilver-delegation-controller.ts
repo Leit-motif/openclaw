@@ -4,7 +4,7 @@ import type {
   RealtimeVoiceGatewayControl,
 } from "openclaw/plugin-sdk/realtime-voice";
 import {
-  buildRealtimeVoiceAgentControlSpeechMessage,
+  buildRealtimeVoiceAgentHandoffReceiptMessage,
   canonicalizeBase64,
   extractErrorCode,
   readErrorName,
@@ -481,11 +481,9 @@ export class OpenAIQuicksilverDelegationController {
     const runner = this.options.runAgentConsult;
     try {
       // Host-classified sessions disable vendor filler. Receipt is launch-only, not run admission.
+      // It asks for a varied short backchannel (same rule as Discord), not a fixed phrase.
       if (this.options.handleDelegationInput) {
-        this.sendSessionContext(
-          buildRealtimeVoiceAgentControlSpeechMessage("I’ll check that request."),
-          "speakable",
-        );
+        this.sendSessionContext(buildRealtimeVoiceAgentHandoffReceiptMessage(), "speakable");
       }
       const result = await runner({
         prompt: delegation.prompt,

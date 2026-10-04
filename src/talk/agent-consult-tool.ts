@@ -10,6 +10,7 @@ import {
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
 import { isStringOption, readTrimmedStringAlias } from "../utils/string-readers.js";
+import { REALTIME_VOICE_WAITING_BACKCHANNEL_INSTRUCTION } from "./agent-run-control-shared.js";
 import type { RealtimeVoiceTool } from "./provider-types.js";
 
 /** Stable provider-facing tool name for realtime voice agent delegation. */
@@ -191,7 +192,7 @@ export function buildRealtimeVoiceSessionInstructions(params: {
           "Answer directly only for greetings, acknowledgements, brief latency tests, or filler while waiting.",
         ]
       : []),
-    'While waiting for OpenClaw data or tool results, use at most one short natural backchannel such as "yeah", "mm-hmm", "got it", or "one sec"; vary it and do not treat it as the final answer.',
+    REALTIME_VOICE_WAITING_BACKCHANNEL_INSTRUCTION,
     ...(params.isAgentProxy
       ? [
           "When OpenClaw sends an internal exact answer to speak, do not call tools. Say only that answer.",
